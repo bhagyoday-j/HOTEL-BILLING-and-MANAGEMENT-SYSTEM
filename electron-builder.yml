@@ -1,0 +1,35 @@
+appId: com.hotelbilling.app
+productName: Hotel Billing
+copyright: Copyright © 2026 Hotel Billing Systems
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - apps/desktop/electron/dist/**/*
+  - apps/desktop/renderer/dist/**/*
+  - apps/server/dist/**/*
+  - packages/shared/dist/**/*
+  - prisma/**/*
+  - node_modules/**/*
+  - package.json
+
+extraResources:
+  - from: prisma
+    to: prisma
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: HotelBillingSetup.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+  shortcutName: Hotel Billing
