@@ -98,6 +98,16 @@ export class AnalyticsService {
         seriesMap.set(monthKey(cursor), { period: monthKey(cursor), revenue: 0, bills: 0 });
         cursor.setMonth(cursor.getMonth() + 1);
       }
+    } else if (groupBy === 'week') {
+      // Start at the Monday of the week containing `from` so empty week buckets
+      // still appear on the chart, matching the day/month branches.
+      const cursor = new Date(from);
+      cursor.setHours(0, 0, 0, 0);
+      cursor.setDate(cursor.getDate() - ((cursor.getDay() + 6) % 7));
+      while (cursor <= to) {
+        seriesMap.set(weekKey(cursor), { period: weekKey(cursor), revenue: 0, bills: 0 });
+        cursor.setDate(cursor.getDate() + 7);
+      }
     } else if (groupBy === 'day') {
       const cursor = new Date(from);
       cursor.setHours(0, 0, 0, 0);

@@ -103,9 +103,9 @@ wrappers also gate access, but UI checks are not a substitute for server authori
 
 ### Hotel profile, settings, backups
 
-The current server/IPC contains hotel, settings, and backup operations. The renderer settings and
-manager-account pages remain placeholders and need implementation before these are complete user
-workflows.
+The server/IPC contains hotel, settings, and backup operations, and the renderer Settings and
+Manager-accounts pages implement them. Settings covers the hotel profile, billing/tax defaults and
+the backup schedule; its backups panel creates and restores local copies in the desktop app.
 
 ## Current API surface
 
@@ -189,27 +189,54 @@ Do not run database reset/seed commands against a production or user database.
 - Browser checks: manager login survives page reload; manager sees only permitted navigation and
   direct Analytics/Managers access is denied. Revoking the manager session then reloading clears
   the stale token and returns the browser to login.
+- Implemented the renderer Settings page (hotel profile, billing/tax defaults, backup schedule and
+  a desktop-only backups panel) and the Manager-accounts page (list, create, edit,
+  activate/deactivate, archive). Verified the exact page payloads against the live API: profile and
+  settings saves succeed, and a temporary manager was created, edited, deactivated and archived.
+- Fixed analytics week grouping so empty week buckets are included, matching the day and month
+  series. Verified `groupBy=week` returns the full range of weeks, and `day`/`month` bucket counts
+  stay correct.
+- Added unit tests for the invoice/thermal HTML templates (A4/80mm/58mm page size, HTML escaping,
+  conditional tax and rounding rows), covering the receipt/print-preview document path without a
+  physical printer.
+- Verified printer discovery through the app's real call (`webContents.getPrintersAsync()`): it
+  returned the installed printers on this Windows machine (`Microsoft Print to PDF` default,
+  `OneNote (Desktop)`).
+- Rendered the real invoice templates through Electron's print pipeline (`printToPDF`) and produced
+  valid PDFs for A4, 80mm and 58mm output.
+- Split the renderer build into vendor chunks (`vendor-react`, `vendor-ui`, `vendor-state`, `vendor`);
+  the bundle chunk-size warning is gone and every chunk is under 500 kB. Verified the split build
+  still mounts (login page rendered in headless Chrome).
 - Browser bill flow: created, inspected, and cancelled temporary bill `INV-2026-000003`;
   cancellation remains in development history by design and is excluded from revenue analytics.
 - Electron dev launch remained running without the previous missing-`main.js` startup error.
 - `npm run typecheck` passed for renderer, server, and Electron after splitting checks by each
   app's TypeScript configuration.
-- `npm test` passed (3 tests in the shared billing test file).
+- `npm test` passed (9 tests: shared billing engine and invoice/thermal print templates).
 - `npm run build:renderer` passed after the current renderer integration.
 
 ## Remaining work and known issues
 
-1. **Printing:** verify printer discovery and receipt output or print preview using Electron on
-   Windows with an available printer. Electron launch was checked, but no physical printer output
-   was verified.
-2. **Incomplete current pages:** manager account and settings UI are placeholders. Legacy room,
-   guest, booking, restaurant order/KOT, expense, cash-session and audit workflows are out of current
-   server scope.
-3. **Analytics:** verify date grouping, especially empty week buckets. Profit must not be displayed
-   until cost data exists.
-4. `npm install` reported dependency audit findings. Review them separately; do not run
-   `npm audit fix --force` without assessing breaking changes.
-5. Vite reports a non-blocking bundle chunk-size warning.
+Statuses below are current as of this document. Items marked **accepted** are deliberate decisions,
+not open tasks; **verified** items are done and covered by a check.
+
+1. **Printing — verified as far as hardware allows.** Printer discovery works, the invoice/thermal
+   templates are unit-tested, and the real templates render through Electron's print pipeline to
+   valid PDFs (A4/80mm/58mm). Physical output on receipt paper still needs a real printer attached;
+   print it once on the target Windows machine before shipping.
+2. **Legacy pages — accepted, out of scope.** Room, guest, booking, restaurant order/KOT, expense,
+   cash-session and audit workflows are not in the current server scope and remain Phase 2
+   placeholders. Reintroducing any of them requires a separately scoped full-stack implementation
+   (routes, services, permissions, validation and tests) per working rule 5.
+3. **Analytics — verified.** Date grouping includes empty week/day/month buckets. Figures are sales
+   revenue only; profit must not be displayed until item-cost data exists.
+4. **Dependency audit — accepted, upgrade deferred.** `npm audit` reports 32 findings (3 critical,
+   20 high, 9 moderate), mostly transitive dev/build tooling (`electron-builder`, `vitest`, `vite`,
+   `tailwindcss`, `postcss`) plus `shadcn-ui`; the direct runtime ones are `argon2` and `electron`.
+   Every available fix is a semver-major upgrade, so this was reviewed and deliberately deferred. Do
+   not run `npm audit fix --force` without assessing breaking changes first.
+5. **Vite bundle warning — resolved.** The renderer build splits vendor chunks in
+   `apps/desktop/renderer/vite.config.ts`, so no chunk exceeds 500 kB.
 
 ## Working rules
 

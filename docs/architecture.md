@@ -32,7 +32,7 @@
 1. Money math lives only in `@hotel-billing/shared` billing engine (`Decimal.js`).
 2. Permissions are enforced in server services, not only in the UI.
 3. Financial writes use Prisma transactions.
-4. Invoice/order/payment numbers come from the `Sequence` table.
+4. Document numbers (currently invoices) come from the `Sequence` table.
 5. Production DB path is AppData; source tree DB is for development only.
 
 ## Package map
@@ -44,6 +44,16 @@
 | `apps/server` | Local API + business services |
 | `packages/shared` | Types, RBAC maps, billing calculations |
 | `prisma` | Schema, migrations, seed |
+
+## Current scope
+
+The running API and UI expose menu management, billing, dashboards/analytics, printing, manager
+accounts, hotel settings and backups. Access is governed by two roles: `ADMIN` (all permissions)
+and `MANAGER` (`MENU_VIEW`, `MENU_MANAGE`, `BILL_VIEW`, `BILL_CREATE`).
+
+The Prisma schema also retains legacy entities (rooms, guests, bookings, restaurant orders,
+expenses, cash sessions, and similar) that the current API/UI do **not** mount. Those screens are
+Phase 2 placeholders and must not be treated as working features.
 
 ## Future sync (not in v1)
 

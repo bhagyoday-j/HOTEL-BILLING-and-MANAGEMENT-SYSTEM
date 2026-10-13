@@ -20,6 +20,22 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Split third-party code so the app chunk stays small and vendor
+        // libraries can be cached independently of application changes.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('recharts') || id.includes('d3-')) return 'vendor-charts';
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) {
+            return 'vendor-react';
+          }
+          if (id.includes('@radix-ui') || id.includes('lucide-react')) return 'vendor-ui';
+          if (id.includes('@tanstack') || id.includes('zustand')) return 'vendor-state';
+          return 'vendor';
+        },
+      },
+    },
   },
   base: './',
 });

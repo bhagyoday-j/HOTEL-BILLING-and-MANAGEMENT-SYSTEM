@@ -13,7 +13,19 @@ SQLite + Prisma ORM with WAL mode recommended for concurrent local reads.
 
 ## Models
 
-User, Role, Permission, Hotel, HotelSetting, RoomType, Room, Guest, Booking, BookingGuest, MenuCategory, MenuItem, RestaurantTable, RestaurantOrder, RestaurantOrderItem, Invoice, InvoiceItem, Payment, Tax, Discount, Expense, ExpenseCategory, CashSession, AuditLog, PrinterSetting, BackupRecord, Notification, Sequence, DailyClosing
+**Used by the current API/UI:**
+
+User, Role, Permission, RolePermission, Hotel, HotelSetting, MenuCategory, MenuItem, Invoice,
+InvoiceItem, Sequence, AuditLog, Tax, BackupRecord
+
+**Legacy (retained in the schema, not exposed by the current API/UI):**
+
+RoomType, Room, Guest, Booking, BookingGuest, RestaurantTable, RestaurantOrder,
+RestaurantOrderItem, Payment, Discount, Expense, ExpenseCategory, CashSession, PrinterSetting,
+Notification, DailyClosing
+
+Bills snapshot item names, prices and tax rates onto `InvoiceItem`, so later menu edits never
+rewrite financial history.
 
 ## Money
 

@@ -1,52 +1,91 @@
 # Hotel Billing & Management System
 
-Production-oriented Windows desktop application for hotel front-office, restaurant POS, invoicing, and reporting.
+Offline-capable Windows desktop application for **menu management, customer billing, receipt
+printing, and owner analytics**.
 
-**Version:** 1.0.0 (Phase 1 foundation)
+**Version:** 1.0.0 · **Target:** Windows 10/11 x64 (Electron) · **Local-first:** the desktop app
+runs a local Express API against a SQLite database. Online sync is out of scope.
 
 ## Overview
 
-- **Offline-first** Electron desktop app (Windows x64)
-- **Local SQLite** via Prisma (AppData in production)
-- **React + TypeScript** UI with Tailwind
-- **Express** local API + secure Electron IPC
-- **Argon2** password hashing, RBAC permissions
+- **Menu management** — list/search categories and items; create categories and items; update
+  details/availability; archive items with soft delete.
+- **Customer billing** — create a bill from selected menu items. The server re-reads current prices
+  and tax rates, calculates totals with the shared billing engine, and finalizes the bill as
+  `PAID`. A client request ID makes duplicate submits idempotent.
+- **Bills** — list, search, inspect and cancel bills. Cancelling preserves the financial record and
+  reason; it never deletes the bill.
+- **Dashboard & analytics** — today's bill count/revenue and recent bills; owner-only analytics with
+  date range, revenue/bill totals, average bill, revenue series and best sellers.
+- **Printing** — A4, 80mm and 58mm templates, printer discovery, invoice printing, and saved HTML
+  invoice copies.
+- **Hotel profile, settings & backups** — hotel details, billing/tax defaults, backup schedule, and
+  local create/restore of database backups.
+
+Analytics are **sales revenue**, not profit — item costs and expenses are not tracked.
 
 ## Tech stack
 
-Electron · React · TypeScript · Vite · Express · SQLite · Prisma · Tailwind · Zod · React Hook Form · TanStack Query · Zustand · Recharts · Electron Builder · Pino · Argon2
+Electron 28 · React 19 · TypeScript · Vite 6 · Tailwind CSS 4 · Radix UI · TanStack Query ·
+Zustand · React Router · Express 4 · Zod · Pino · Prisma 5 · SQLite · Argon2 · Decimal.js ·
+electron-builder
 
 ## Architecture
 
-```
-hotel-billing/
-├── apps/
-│   ├── desktop/          # Electron main + React renderer
-│   └── server/           # Local Express API + domain services
-├── packages/shared/      # Shared types, permissions, billing engine
-├── prisma/               # Schema, migrations, seed
-└── docs/                 # Architecture & ops docs
+```text
+Electron main
+  ├─ secure IPC + preload bridge (contextIsolation enabled)
+  ├─ local server lifecycle, AppData paths, backup and printing
+  └─ typed bridge: window.api.*
+       ↓
+React renderer (Vite; UI only, no Node/fs/db access)
+  ├─ Zustand auth state (sessionStorage in browser)
+  └─ HTTP http://127.0.0.1:3847 in browser / IPC in Electron
+       ↓
+Express local API
+  ├─ routes + Zod request validation
+  ├─ domain services + server-side permission checks
+  └─ Prisma + SQLite
 ```
 
-Renderer never touches Node/fs/db directly. Main process uses `contextIsolation` and typed IPC. Business logic lives in server services.
+Business rules live in server services. The renderer uses the API service or the typed Electron
+bridge and never accesses Node, the filesystem, or Prisma directly. Money math uses the shared
+`Decimal.js` billing engine — never binary floats.
+
+## Repository layout
+
+```text
+apps/
+  desktop/
+    electron/     Electron main, IPC, server lifecycle, backup, printing
+    renderer/     React application, pages, components, API client
+  server/         Express API, routes and domain services
+packages/shared/  Shared types, roles/permissions and billing engine
+prisma/           Schema, migrations and seed data
+docs/             Architecture, database, printing, backup, security, deployment
+```
 
 ## Prerequisites
 
-- Node.js 20+
-- Windows 10/11 x64 (target platform)
-- npm 10+
+- **Node.js 20+**
+- **npm 10+**
+- **Windows 10/11 x64** (target platform)
+- SQLite is bundled with Prisma — no separate install.
 
-## Installation
+## Setup
 
-```bash
+```powershell
 npm install
+npm run db:generate
 npm run db:migrate
 npm run db:seed
 ```
 
-## Development
+## Running
 
-```bash
+Development runs the API and renderer together:
+
+```powershell
 npm run dev
 ```
 
@@ -54,55 +93,73 @@ This starts:
 
 1. Local Express API on `http://127.0.0.1:3847`
 2. Vite renderer on `http://127.0.0.1:5173`
-3. Electron shell
 
-You can also open the renderer in a browser at `http://127.0.0.1:5173` while the API is running.
+Open `http://127.0.0.1:5173` and verify `http://127.0.0.1:3847/api/health`.
 
-## Development credentials (CHANGE BEFORE PRODUCTION)
+**Desktop (Electron) shell:** `npm run dev` does **not** launch Electron. Start it separately:
+
+```powershell
+# Terminal 1
+npm run dev
+# Terminal 2 (renderer must already be available on port 5173)
+npm run dev:electron
+```
+
+`npm run dev:electron` compiles the Electron TypeScript first, then launches the shell (package
+entry: `apps/desktop/electron/dist/main.js`).
+
+## Development credentials
+
+These are development-only seed accounts. **Never use them in production.**
 
 | Username | Password | Role |
 |----------|----------|------|
-| admin | Admin@123 | ADMIN |
-| manager | Manager@123 | MANAGER |
-| reception | Reception@123 | RECEPTIONIST |
-| cashier | Cashier@123 | CASHIER (PIN: 1234) |
-| restaurant | Restaurant@123 | RESTAURANT_STAFF |
-| viewer | Viewer@123 | VIEWER |
+| `admin` | `Admin@123` | ADMIN |
+| `manager` | `Manager@123` | MANAGER |
+
+The seed normalizes accounts to the two-role model: any legacy account (reception, cashier, etc.)
+is reassigned to `MANAGER` rather than deleted, so old logins may still work as managers.
+
+## Roles and permissions
+
+The role model has exactly two roles:
+
+- **ADMIN** (owner): all current permissions.
+- **MANAGER**: `MENU_VIEW`, `MENU_MANAGE`, `BILL_VIEW`, `BILL_CREATE`.
+
+Permissions are enforced server-side on every protected route; UI gating is a convenience only.
 
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Run Electron + API + Vite |
-| `npm run build` | Build all packages |
+| `npm run dev` | Start the API + Vite renderer |
+| `npm run dev:server` | Start only the local Express API |
+| `npm run dev:renderer` | Start only the Vite renderer |
+| `npm run dev:electron` | Compile Electron TS and launch the desktop shell |
+| `npm run build` | Build the renderer and package the Electron app |
+| `npm run build:renderer` | Build the renderer (`vite build`) |
+| `npm run build:electron` | Compile Electron TS and run electron-builder |
+| `npm test` | Vitest unit tests (billing engine + print templates) |
+| `npm run typecheck` | Typecheck renderer, server and Electron separately |
 | `npm run lint` | ESLint |
-| `npm run test` | Vitest unit tests |
-| `npm run typecheck` | TypeScript project references |
-| `npm run db:migrate` | Prisma migrate (dev) |
-| `npm run db:migrate:deploy` | Prisma migrate (production) |
-| `npm run db:seed` | Seed roles, rooms, menu, users |
+| `npm run db:generate` | `prisma generate` |
+| `npm run db:migrate` | `prisma migrate dev` |
+| `npm run db:migrate:deploy` | `prisma migrate deploy` |
+| `npm run db:seed` | Seed roles, users, hotel, taxes, menu, sequences |
 | `npm run db:studio` | Prisma Studio |
-| `npm run package` | electron-builder dir output |
-| `npm run installer` | Create `HotelBillingSetup.exe` |
 
 ## Database
 
-Development DB: `prisma/dev.db` via `DATABASE_URL` in `.env`.
+| Environment | Path |
+|-------------|------|
+| Development | `prisma/dev.db` (via `DATABASE_URL` in `.env`) |
+| Production | `%APPDATA%\Hotel Billing\data\hotel.db` |
 
-Production DB (resolved by Electron):
-
-`%APPDATA%\Hotel Billing\data\hotel.db`
-
-Also created on startup:
-
-- `data/`
-- `backups/`
-- `logs/`
-- `invoices/`
-
+The Electron runtime also manages `data/`, `backups/`, `logs/` and `invoices/` under AppData.
 Never store the production database inside the source tree.
 
-## Prisma
+Prisma commands:
 
 ```bash
 npx prisma migrate dev --name <name>
@@ -111,17 +168,36 @@ npx prisma generate
 npm run db:seed
 ```
 
-Do **not** use `prisma db push` as the production migration strategy.
+Do **not** use `prisma db push` as the production migration strategy, and do not run database
+reset/seed commands against a production or user database.
+
+## Local API
+
+Base URL `http://127.0.0.1:3847`. Protected HTTP routes use `Authorization: Bearer <token>`.
+Health is public.
+
+| Group | Routes | Access |
+|-------|--------|--------|
+| Health | `GET /api/health` | Public |
+| Auth | `POST /api/auth/login`, `POST /api/auth/logout` | Login/logout |
+| Dashboard | `GET /api/dashboard/summary` | Authenticated |
+| Menu | `GET /api/menu`, `POST /api/menu/categories`, `POST /api/menu/items`, `PUT /api/menu/items/:id`, `DELETE /api/menu/items/:id` | `MENU_VIEW` / `MENU_MANAGE` |
+| Bills | `GET /api/bills`, `GET /api/bills/:id`, `POST /api/bills`, `POST /api/bills/:id/cancel` | `BILL_VIEW` / `BILL_CREATE` / `BILL_CANCEL` |
+| Analytics | `GET /api/analytics/summary` | `ANALYTICS_VIEW` (owner) |
+| Managers | `GET /api/users`, `POST /api/users`, `PUT /api/users/:id`, `DELETE /api/users/:id` | `MANAGER_MANAGE` (owner) |
+| Hotel | `GET /api/hotel`, `GET /api/hotel/settings` | Authenticated |
+| Settings | `GET/PUT /api/settings`, `PUT /api/settings/hotel` | Read authenticated; writes require `SETTINGS_MANAGE` |
+| System | system/backup endpoints | See `apps/server/src/routes/system.ts` and Electron IPC |
 
 ## Build / installer
 
-```bash
-npm run installer
+```powershell
+npm run build
 ```
 
-Output: `release/HotelBillingSetup.exe`
-
-Installer preserves user data, database, and backups across upgrades.
+`npm run build:electron` runs electron-builder, producing `release/HotelBillingSetup.exe`
+(Windows x64 NSIS). The installer preserves the AppData database, backups and logs across upgrades,
+and does not delete user data on uninstall.
 
 ## Documentation
 
@@ -131,26 +207,30 @@ Installer preserves user data, database, and backups across upgrades.
 - [Backup](docs/backup.md)
 - [Security](docs/security.md)
 - [Deployment](docs/deployment.md)
+- [Agent/project conventions](AGENTS.md)
 
-## Build phases
+## Current scope & known limitations
 
-1. **Phase 1 (current):** Project setup, Electron shell, Prisma schema, auth login, dashboard shell, rooms grid
-2. Phase 2–3: Schema hardening, full RBAC middleware
-3. Phase 4: Hotel settings, guests, rooms CRUD
-4. Phase 5: Bookings, check-in/out
-5. Phase 6: Restaurant POS, tables, KOT
-6. Phase 7: Billing engine wiring, invoices, payments, GST
-7. Phase 8: Printing + PDF
-8. Phase 9: Reports + exports
-9. Phase 10: Backup/restore + audit UX
-10. Phase 11–12: Tests, packaging polish, production docs
+- **Current features** are menu, billing, dashboards/analytics, printing, manager accounts, hotel
+  settings and backups. The Prisma schema retains legacy entities (rooms, guests, bookings,
+  restaurant orders, expenses, cash sessions, audit), but the current API/UI does **not** expose
+  them — their old renderer screens are Phase 2 placeholders and must not be treated as working.
+- **Printing** is implemented (discovery, templates and the print pipeline are verified), but
+  physical output on receipt paper must be confirmed once on the target Windows machine.
+- **Dependency audit** findings are known; all fixes are semver-major and were deliberately
+  deferred.
+- Dates in analytics include empty week/day/month buckets; revenue only (no profit).
+
+See [AGENTS.md](AGENTS.md) for the full remaining-work status.
 
 ## Troubleshooting
 
-**API not reachable:** ensure `npm run dev:server` is up on port 3847.
+**API not reachable:** ensure `npm run dev:server` (or `npm run dev`) is running on port 3847. If the
+port is already in use, stop the process holding it first.
 
-**Prisma client missing:** run `npx prisma generate`.
+**Prisma client missing:** run `npm run db:generate`.
 
-**Argon2 build errors:** install Windows build tools / use Node 20 LTS.
+**Argon2 build errors:** use Node 20 LTS and install Windows build tools if needed.
 
-**Electron blank window:** wait for Vite on 5173; check `apps/desktop/electron/dist` was built.
+**Electron blank window:** confirm Vite is serving on 5173 and that the Electron TypeScript is
+compiled (`npm run dev:electron` compiles it).
