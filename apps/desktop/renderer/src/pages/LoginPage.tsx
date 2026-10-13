@@ -40,7 +40,7 @@ export function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const res = await api.login(values.username, values.password);
+      const res = await api.auth.login(values.username, values.password);
       if (!res.success) {
         setError(res.error.message);
         return;

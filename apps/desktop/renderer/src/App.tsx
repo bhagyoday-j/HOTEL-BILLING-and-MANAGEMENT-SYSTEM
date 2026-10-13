@@ -2,18 +2,13 @@ import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router
 import { AppShell } from './layouts/AppShell';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
-import { RoomsPage } from './pages/RoomsPage';
-import { GuestsPage } from './pages/GuestsPage';
-import { BookingsPage } from './pages/BookingsPage';
 import { RestaurantPage } from './pages/RestaurantPage';
 import { InvoicesPage } from './pages/InvoicesPage';
-import { ExpensesPage } from './pages/ExpensesPage';
-import { CashSessionPage } from './pages/CashSessionPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { UsersPage } from './pages/UsersPage';
-import { AuditPage } from './pages/AuditPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useAuthStore } from './stores/authStore';
+import { ComingSoonPage } from './pages/ComingSoonPage';
 
 const Router = window.location.protocol === 'file:' ? HashRouter : BrowserRouter;
 
@@ -21,6 +16,24 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+  return children;
+}
+
+function PermissionRoute({
+  permission,
+  children,
+}: {
+  permission: string;
+  children: React.ReactNode;
+}) {
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  if (!hasPermission(permission)) {
+    return (
+      <div className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+        You do not have permission to access this page.
+      </div>
+    );
   }
   return children;
 }
@@ -39,17 +52,17 @@ export function App() {
           }
         >
           <Route index element={<DashboardPage />} />
-          <Route path="rooms" element={<RoomsPage />} />
-          <Route path="guests" element={<GuestsPage />} />
-          <Route path="bookings" element={<BookingsPage />} />
-          <Route path="restaurant" element={<RestaurantPage />} />
-          <Route path="invoices" element={<InvoicesPage />} />
-          <Route path="expenses" element={<ExpensesPage />} />
-          <Route path="cash" element={<CashSessionPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="users" element={<UsersPage />} />
-          <Route path="audit" element={<AuditPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="rooms" element={<PermissionRoute permission="ROOM_VIEW"><ComingSoonPage title="Rooms" phase="Phase 2" /></PermissionRoute>} />
+          <Route path="guests" element={<PermissionRoute permission="GUEST_VIEW"><ComingSoonPage title="Guests" phase="Phase 2" /></PermissionRoute>} />
+          <Route path="bookings" element={<PermissionRoute permission="BOOKING_VIEW"><ComingSoonPage title="Bookings" phase="Phase 2" /></PermissionRoute>} />
+          <Route path="restaurant" element={<PermissionRoute permission="MENU_VIEW"><RestaurantPage /></PermissionRoute>} />
+          <Route path="invoices" element={<PermissionRoute permission="BILL_VIEW"><InvoicesPage /></PermissionRoute>} />
+          <Route path="expenses" element={<PermissionRoute permission="EXPENSE_VIEW"><ComingSoonPage title="Expenses" phase="Phase 2" /></PermissionRoute>} />
+          <Route path="cash" element={<PermissionRoute permission="CASH_SESSION_VIEW"><ComingSoonPage title="Cash Session" phase="Phase 2" /></PermissionRoute>} />
+          <Route path="reports" element={<PermissionRoute permission="ANALYTICS_VIEW"><ReportsPage /></PermissionRoute>} />
+          <Route path="users" element={<PermissionRoute permission="MANAGER_MANAGE"><UsersPage /></PermissionRoute>} />
+          <Route path="audit" element={<PermissionRoute permission="AUDIT_LOG_VIEW"><ComingSoonPage title="Audit Log" phase="Phase 2" /></PermissionRoute>} />
+          <Route path="settings" element={<PermissionRoute permission="SETTINGS_MANAGE"><SettingsPage /></PermissionRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -4,26 +4,25 @@ import { getPrisma } from '../utils/prisma';
 import { AppError } from '../utils/errors';
 import { AuditService } from './auditService';
 import { sessionStore } from './sessionStore';
-import { ROLES } from '@hotel-billing/shared';
 
-export const createUserSchema = z.object({
+/**
+ * Manager-account management (admin only).
+ * New accounts are always created with the MANAGER role; role codes are not
+ * accepted from the API at all, so neither managers nor admins can escalate
+ * privileges through user endpoints.
+ */
+export const createManagerSchema = z.object({
   username: z
     .string()
     .min(3, 'Username must be at least 3 characters')
-    .regex(/^[a-zA-Z0-9._-]+$/, 'Only letters, numbers, dots, dashes'),
+    .regex(/^[a-zA-Z0-9._-]+$/, 'Only letters, numbers, dots, dashes allowed'),
   fullName: z.string().min(1, 'Full name is required'),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   phone: z.string().optional(),
-  roleCode: z.enum(ROLES),
   password: z.string().min(8, 'Password must be at least 8 characters'),
-  pin: z
-    .string()
-    .regex(/^\d{4,8}$/, 'PIN must be 4-8 digits')
-    .optional()
-    .or(z.literal('')),
 });
 
-export const updateUserSchema = createUserSchema
+export const updateManagerSchema = createManagerSchema
   .partial()
   .omit({ password: true })
   .extend({
@@ -31,14 +30,16 @@ export const updateUserSchema = createUserSchema
     isActive: z.boolean().optional(),
   });
 
+export type CreateManagerInput = z.infer<typeof createManagerSchema>;
+export type UpdateManagerInput = z.infer<typeof updateManagerSchema>;
+
 export class UserService {
   private audit = new AuditService();
 
   async list() {
     const prisma = getPrisma();
     const users = await prisma.user.findMany({
-      where: { deletedAt: null },
-      include: { role: true },
+      where: { deletedAt: null, role: { code: 'MANAGER' } },
       orderBy: { username: 'asc' },
     });
     return users.map((u) => ({
@@ -47,53 +48,58 @@ export class UserService {
       fullName: u.fullName,
       email: u.email,
       phone: u.phone,
-      roleCode: u.role.code,
-      roleName: u.role.name,
       isActive: u.isActive,
       lastLoginAt: u.lastLoginAt,
-      hasPin: Boolean(u.pinHash),
+      createdAt: u.createdAt,
     }));
   }
 
-  async create(input: z.infer<typeof createUserSchema>, userId: string) {
+  async create(input: CreateManagerInput, userId: string) {
     const prisma = getPrisma();
     const dup = await prisma.user.findFirst({ where: { username: input.username } });
     if (dup) throw new AppError('USERNAME_EXISTS', 'Username already exists', 409);
 
-    const role = await prisma.role.findUnique({ where: { code: input.roleCode } });
-    if (!role) throw new AppError('ROLE_NOT_FOUND', 'Role not found', 404);
+    const managerRole = await prisma.role.findUnique({ where: { code: 'MANAGER' } });
+    if (!managerRole) throw new AppError('ROLE_NOT_FOUND', 'MANAGER role is not configured', 500);
 
     const passwordHash = await argon2.hash(input.password);
-    const pinHash = input.pin ? await argon2.hash(input.pin) : null;
 
     const user = await prisma.user.create({
       data: {
         username: input.username,
         fullName: input.fullName,
         email: input.email || null,
-        phone: input.phone,
-        roleId: role.id,
+        phone: input.phone || null,
+        roleId: managerRole.id,
         passwordHash,
-        pinHash,
       },
     });
 
     await this.audit.log({
       userId,
-      action: 'USER_CREATE',
+      action: 'MANAGER_CREATE',
       entityType: 'User',
       entityId: user.id,
       entityRef: user.username,
-      details: { role: input.roleCode },
+      details: { role: 'MANAGER' },
     });
 
     return { id: user.id, username: user.username };
   }
 
-  async update(id: string, input: z.infer<typeof updateUserSchema>, userId: string) {
+  async update(id: string, input: UpdateManagerInput, actorId: string) {
     const prisma = getPrisma();
-    const existing = await prisma.user.findFirst({ where: { id, deletedAt: null } });
-    if (!existing) throw new AppError('USER_NOT_FOUND', 'User not found', 404);
+    const existing = await prisma.user.findFirst({
+      where: { id, deletedAt: null },
+      include: { role: true },
+    });
+    if (!existing) throw new AppError('USER_NOT_FOUND', 'Account not found', 404);
+    if (existing.role.code !== 'MANAGER') {
+      throw new AppError('FORBIDDEN', 'Only manager accounts can be modified here', 403);
+    }
+    if (input.isActive === false && id === actorId) {
+      throw new AppError('CANNOT_DEACTIVATE_SELF', 'You cannot deactivate your own account', 400);
+    }
 
     const data: Record<string, unknown> = {};
     if (input.username && input.username !== existing.username) {
@@ -101,43 +107,52 @@ export class UserService {
       if (dup) throw new AppError('USERNAME_EXISTS', 'Username already exists', 409);
       data.username = input.username;
     }
-    if (input.fullName) data.fullName = input.fullName;
+    if (input.fullName !== undefined) data.fullName = input.fullName;
     if (input.email !== undefined) data.email = input.email || null;
-    if (input.phone !== undefined) data.phone = input.phone;
+    if (input.phone !== undefined) data.phone = input.phone || null;
     if (input.isActive !== undefined) {
       data.isActive = input.isActive;
-      if (!input.isActive) sessionStore.revokeAllForUser(id);
-    }
-    if (input.roleCode) {
-      const role = await prisma.role.findUnique({ where: { code: input.roleCode } });
-      if (!role) throw new AppError('ROLE_NOT_FOUND', 'Role not found', 404);
-      data.roleId = role.id;
+      if (!input.isActive) sessionStore.revokeAllForUser(id); // deactivate → immediate lockout
     }
     if (input.password) {
       data.passwordHash = await argon2.hash(input.password);
+      sessionStore.revokeAllForUser(id); // password reset → invalidate sessions
     }
-    if (input.pin !== undefined) {
-      data.pinHash = input.pin ? await argon2.hash(input.pin) : null;
+
+    if (Object.keys(data).length === 0) {
+      throw new AppError('VALIDATION_ERROR', 'No fields to update', 400);
     }
 
     await prisma.user.update({ where: { id }, data });
+
     await this.audit.log({
-      userId,
-      action: 'USER_UPDATE',
+      userId: actorId,
+      action: 'MANAGER_UPDATE',
       entityType: 'User',
       entityId: id,
       entityRef: existing.username,
+      details: {
+        fields: Object.keys(data).filter((f) => f !== 'passwordHash'),
+        passwordChanged: Boolean(input.password),
+        deactivated: input.isActive === false,
+      },
     });
   }
 
   /** Soft-delete; keeps audit references intact. */
-  async remove(id: string, userId: string) {
+  async remove(id: string, actorId: string) {
     const prisma = getPrisma();
-    if (id === userId) {
+    if (id === actorId) {
       throw new AppError('CANNOT_DELETE_SELF', 'You cannot delete your own account', 400);
     }
-    const existing = await prisma.user.findFirst({ where: { id, deletedAt: null } });
-    if (!existing) throw new AppError('USER_NOT_FOUND', 'User not found', 404);
+    const existing = await prisma.user.findFirst({
+      where: { id, deletedAt: null },
+      include: { role: true },
+    });
+    if (!existing) throw new AppError('USER_NOT_FOUND', 'Account not found', 404);
+    if (existing.role.code !== 'MANAGER') {
+      throw new AppError('FORBIDDEN', 'Only manager accounts can be deleted here', 403);
+    }
 
     await prisma.user.update({
       where: { id },
@@ -146,24 +161,11 @@ export class UserService {
     sessionStore.revokeAllForUser(id);
 
     await this.audit.log({
-      userId,
-      action: 'USER_DELETE',
+      userId: actorId,
+      action: 'MANAGER_DELETE',
       entityType: 'User',
       entityId: id,
       entityRef: existing.username,
     });
-  }
-
-  async listRoles() {
-    const prisma = getPrisma();
-    const roles = await prisma.role.findMany({
-      include: { permissions: { include: { permission: true } } },
-      orderBy: { code: 'asc' },
-    });
-    return roles.map((r) => ({
-      code: r.code,
-      name: r.name,
-      permissions: r.permissions.map((rp) => rp.permission.code),
-    }));
   }
 }

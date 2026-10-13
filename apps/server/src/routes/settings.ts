@@ -35,6 +35,7 @@ const profileSchema = z.object({
 
 settingsRouter.get(
   '/hotel',
+  requirePermission('SETTINGS_MANAGE'),
   asyncHandler(async (_req, res) => {
     res.json(ok(await hotelAdminService.getProfile()));
   }),
@@ -51,6 +52,7 @@ settingsRouter.put(
 
 settingsRouter.get(
   '/',
+  requirePermission('SETTINGS_MANAGE'),
   asyncHandler(async (_req, res) => {
     res.json(ok(await settingsService.all()));
   }),

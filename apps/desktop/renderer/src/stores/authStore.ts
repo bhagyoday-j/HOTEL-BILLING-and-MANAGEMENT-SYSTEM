@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { SessionUser } from '@hotel-billing/shared';
 
 interface AuthState {
@@ -25,9 +25,11 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'hotel-billing-auth',
+      storage: createJSONStorage(() => sessionStorage),
       partialize: (state) => ({
+        user: state.user,
+        token: state.token,
         lastUsername: state.lastUsername,
-        // Session is in-memory for security; only remember username
       }),
     },
   ),

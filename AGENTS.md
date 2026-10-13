@@ -1,232 +1,227 @@
 # Agents
 
-Project overview, architecture, and working conventions for agents and developers.
+Current project overview and working conventions for agents and developers. This document describes
+the code that is present today; older hotel-management modules in the Prisma schema are not
+necessarily exposed by the current API or UI.
 
 ## Project
 
-**Hotel Billing & Management System** — a production-oriented, offline-first Windows desktop
-application for hotel front-office, restaurant POS, invoicing, and reporting.
+**Hotel Billing & Management System** — an offline-capable Windows desktop application for menu
+management, customer billing, receipt printing, and owner analytics.
 
-- **Version:** 1.0.0 (Phase 1 foundation)
+- **Version:** 1.0.0
 - **Target:** Windows 10/11 x64 (Electron)
-- **Offline-first:** Core operations must not require internet. Optional online sync is out of scope
-  for v1.
+- **Local-first:** The desktop app uses a local Express API and SQLite database. Online sync is out
+  of scope.
 
-## Runtime topology
+## Current architecture
 
 ```text
-┌─────────────────────────────────────────────┐
-│ Electron Main                               │
-│  - Window management / secure IPC           │
-│  - AppData paths, backups, printing         │
-│  - contextIsolation + preload bridge        │
-└───────────────┬─────────────────────────────┘
-                │ typed IPC (window.api.*)
-┌───────────────▼─────────────────────────────┐
-│ React Renderer                              │
-│  - UI only                                  │
-│  - TanStack Query + Zustand                 │
-│  - No fs / db / Node access                 │
-└───────────────┬─────────────────────────────┘
-                │ HTTP 127.0.0.1:3847 (local)
-┌───────────────▼─────────────────────────────┐
-│ Express Local API                           │
-│  - Controllers / routes                     │
-│  - Domain services                          │
-│  - Zod validation                           │
-│  - Prisma + SQLite                          │
-└─────────────────────────────────────────────┘
+Electron main
+  ├─ secure IPC + preload bridge (contextIsolation enabled)
+  ├─ local server lifecycle, AppData paths, backup and printing
+  └─ typed bridge: window.api.*
+       ↓
+React renderer (Vite; UI only, no Node/fs/db access)
+  ├─ Zustand auth state (sessionStorage in browser)
+  └─ HTTP http://127.0.0.1:3847 in browser / IPC in Electron
+       ↓
+Express local API
+  ├─ routes + Zod request validation
+  ├─ domain services + server-side permission checks
+  └─ Prisma + SQLite
 ```
 
-- Renderer never touches Node/fs/db directly.
-- The Electron main process uses `contextIsolation` and a typed IPC bridge.
-- Business logic lives in server services, not in routes or UI.
+Business rules belong in server services. Renderer code must use the API service or the typed
+Electron bridge; it must never access Node, the filesystem, or Prisma directly.
 
-## Tech stack
+## Technology and package map
 
 | Layer | Technology |
-|-------|------------|
+|---|---|
 | Desktop shell | Electron 28 |
-| UI | React 19 + TypeScript + Vite |
-| Styling | Tailwind CSS 4 + Radix UI primitives (dialog, dropdown, label, slot, toast) |
-| State | TanStack Query 4/5 + Zustand 4 + persist |
-| API | Express 4 + CORS + Pino |
-| DB | SQLite via Prisma 5 |
-| Validation | Zod |
-| Auth | Argon2 + session token store + audit log |
-| Money | `Decimal.js` (shared billing engine), no JS floats |
-| Build | Tsc + electron-builder (NSIS installer) |
+| Renderer | React 19, TypeScript, Vite |
+| UI | Tailwind CSS 4, Radix UI |
+| State | TanStack Query, Zustand |
+| API | Express 4, Zod, Pino |
+| Database | Prisma 5, SQLite |
+| Authentication | Argon2, in-memory API sessions |
+| Money | Shared billing engine using Decimal.js; do not calculate money with binary floats |
 
-## Package map
-
-```
-hotel-billing/
-├── apps/
-│   ├── desktop/              # Electron main + React renderer
-│   │   ├── electron/         # main.ts, ipc/, printing/, backup/, server/, database/
-│   │   └── renderer/         # React app, pages, components, services
-│   └── server/               # Local Express API + domain services + routes
-├── packages/
-│   └── shared/               # Shared types, permissions, billing engine
-├── prisma/                   # Schema, migrations, seed
-└── docs/                     # Architecture & ops docs
+```text
+apps/desktop/electron/       Electron main, IPC, server, backup, printing
+apps/desktop/renderer/       React application, pages, components, API client
+apps/server/                 Express API, routes and domain services
+packages/shared/             shared types, roles/permissions and billing engine
+prisma/                      schema, migrations and seed data
+docs/                        architecture/deployment notes
 ```
 
-## Core modules
+## Current product scope
 
-### Auth
-- Argon2 password hashing (never floats), optional cashier PIN hash.
-- Failed login tracking + temporary lockout (5 attempts / 15 min).
-- Audit log for LOGIN / LOGOUT.
-- Session store is local + in-memory: tokens are discarded when the API process restarts.
-- `/api/auth/login`, `/api/auth/pin-login`, `/api/auth/logout`.
+### Roles and permissions
 
-### Rooms
-- Room statuses: `AVAILABLE`, `OCCUPIED`, `RESERVED`, `CLEANING`, `MAINTENANCE`, `BLOCKED`.
-- Business rules: no manual occupancy edits (only check-in/out), no editing checked-in stays,
-  no archiving an occupied room, no booking an overlapping stay.
-- Room grid and room-type management.
+The current role model has exactly two roles:
 
-### Bookings
-- Statuses: `CONFIRMED`, `CHECKED_IN`, `CHECKED_OUT`, `CANCELLED`, `NO_SHOW`.
-- Check-in/out, cancel, folio (room charges + unpaid room-service orders), invoice generation.
-- Overlap prevention enforced in a database transaction.
+- `ADMIN` (owner): all current permissions.
+- `MANAGER`: `MENU_VIEW`, `MENU_MANAGE`, `BILL_VIEW`, `BILL_CREATE`.
 
-### Restaurant / POS
-- Menu (categories + items), restaurant tables, orders (`DINE_IN`, `TAKEAWAY`, `ROOM_SERVICE`).
-- Order lifecycles: `DRAFT` → `HELD` → `SENT` → `PREPARING` → `READY` → `COMPLETED`, or
-  `CANCELLED`.
-- Pay-and-close flow creates an invoice + payments; KOT print is available per order.
+Protected API routes enforce permissions server-side. Renderer navigation and protected route
+wrappers also gate access, but UI checks are not a substitute for server authorization.
 
-### Invoices & payments
-- Statuses: `DRAFT`, `ISSUED`, `PAID`, `PARTIALLY_PAID`, `CANCELLED`, `REFUNDED`.
-- Line items, split taxes (CGST/SGST/IGST), payments, cancellations (never delete — financial
-  history stays intact).
+### Menu
 
-### Cash sessions
-- Open/close shift sessions, live drawer reconciliation (`expectedCash`), closing differences.
+- List/search active categories and menu items.
+- Create categories and items; update item details/availability; archive items using soft delete.
+- A menu item has a category, name, optional SKU/description, price, tax rate and availability.
+- Existing bills store snapshots and must not be rewritten by later menu edits.
 
-### Reports
-- Sales summary, revenue by day, payments by method, top menu items, occupancy, outstanding dues,
-  GST summary, guest report, expense report, cancelled invoices.
+### Bills
 
-### Users & RBAC
-- Roles: `ADMIN`, `MANAGER`, `RECEPTIONIST`, `CASHIER`, `RESTAURANT_STAFF`, `VIEWER`.
-- Permission set includes `DASHBOARD_VIEW`, `ROOM_*`, `GUEST_*`, `BOOKING_*`, `RESTAURANT_*`,
-  `INVOICE_*`, `PAYMENT_CREATE`, `REPORT_VIEW`, `EXPENSE_CREATE`, `USER_MANAGE`,
-  `SETTINGS_MANAGE`, `BACKUP_CREATE`, `BACKUP_RESTORE`, `AUDIT_LOG_VIEW`.
-- Permissions are enforced in server services, not only in the UI.
+- List, search, inspect and cancel bills.
+- Create a bill from selected menu items. Server re-reads current prices and tax rates, calculates
+  totals using the shared billing engine, and finalizes the new bill as `PAID`.
+- A client request ID provides duplicate-submit idempotency.
+- Cancellation preserves the financial record and reason; it does not delete the bill.
 
-### Audit
-- `AuditLog` table records `userId`, `action`, `entityType`, `entityId`, `entityRef`,
-  `details` (JSON string).
-- Actions include user changes, financial writes, check-in/out, tax setting changes, and more.
+### Dashboard and analytics
 
-### Hotel & settings
-- Hotel profile (name, address, GSTIN, PAN) and a key-value settings store for tax rates,
-  numbering prefixes, backup scheduler, theme, and checkout room status.
+- Dashboard: today’s bill count/revenue and recent bills. Owner financial totals are nullable for
+  non-owner roles.
+- Owner-only analytics: date range, revenue/bill totals, average bill, revenue series, best sellers,
+  and recent bills.
+- Analytics are sales revenue, not profit; item costs are not tracked.
 
-### Backup & restore
-- Manual + scheduled backups, safety backup before restore, WAL checkpoint, integrity validation,
-  retention (default keep last 30). Backup filename: `hotel-backup-YYYY-MM-DD-HH-mm-ss.db`.
-- `ON_CLOSE` scheduler hook on app quit.
+### Printing and desktop runtime
 
-### Printing
-- A4 / 80mm / 58mm templates, invoice + KOT + receipt, silent print + preview, per-purpose
-  printers (`INVOICE`, `RECEIPT`, `KOT`). IPC surface: `window.api.print.*`.
+- Electron printing supports A4, 80mm and 58mm templates, printer discovery, invoice printing, and
+  saving an HTML invoice copy.
+- The physical print path is implemented but must be tested on a Windows machine with a printer.
+- `npm run dev` starts the API and renderer. `npm run dev:electron` compiles the Electron TypeScript
+  and starts the desktop shell. The renderer must already be available at port 5173 for dev mode.
+- The Electron package entry is `apps/desktop/electron/dist/main.js`; compile Electron before launch.
 
-## API surface
+### Hotel profile, settings, backups
 
-Base: `http://127.0.0.1:3847`. Authentication is Bearer token carried in the `Authorization`
-header (plus session cookie in some clients).
+The current server/IPC contains hotel, settings, and backup operations. The renderer settings and
+manager-account pages remain placeholders and need implementation before these are complete user
+workflows.
 
-| Group | Prefix | Notes |
-|-------|--------|-------|
-| Health | `/api/health` | Status + version + offline capability |
-| Auth | `/api/auth` | Login, PIN login, logout |
-| Rooms | `/api/rooms` | List, grid, types, CRUD, status, delete |
-| Hotel | `/api/hotel`, `/api/settings` | Profile + key-value settings |
-| Dashboard | `/api/dashboard/summary` | Live front-office metrics |
-| Guests | `/api/guests` | CRUD, search, archive |
-| Bookings | `/api/bookings` | CRUD, cancel, check-in, check-out, folio |
-| Restaurant | `/api/restaurant` | Menu, tables, orders, pay |
-| Invoices | `/api/invoices` | List, get, create, payments, cancel |
-| Expenses | `/api/expenses` | Categories, list, record |
-| Cash sessions | `/api/cash-sessions` | Current, summary, open, close, list |
-| Reports | `/api/reports` | 11 report endpoints |
-| Search | `/api/search` | Global guest/invoice/booking/room/order/payment search |
-| Users | `/api/users` | List, roles, CRUD, roles |
-| Audit logs | `/api/audit-logs` | List paginated |
-| Settings | `/api/settings` | Full settings + save |
-| System | `/api/system` | Backups, DB checkpoint/integrity, shutdown, server status |
+## Current API surface
 
-Every protected route goes through `requireAuth` and, where needed, `requirePermission(...)`.
-Server-side RBAC is enforced here — hiding buttons in the frontend is a convenience only.
+Base URL: `http://127.0.0.1:3847`. Protected HTTP routes use `Authorization: Bearer <token>`.
+Health is public.
 
-## Data model (key entities)
+| Group | Routes | Access |
+|---|---|---|
+| Health | `GET /api/health` | Public |
+| Auth | `POST /api/auth/login`, `POST /api/auth/logout` | Login/logout |
+| Dashboard | `GET /api/dashboard/summary` | Authenticated |
+| Menu | `GET /api/menu`, `POST /api/menu/categories`, `POST /api/menu/items`, `PUT /api/menu/items/:id`, `DELETE /api/menu/items/:id` | `MENU_VIEW` / `MENU_MANAGE` |
+| Bills | `GET /api/bills`, `GET /api/bills/:id`, `POST /api/bills`, `POST /api/bills/:id/cancel` | `BILL_VIEW` / `BILL_CREATE` / `BILL_CANCEL` |
+| Analytics | `GET /api/analytics/summary` | `ANALYTICS_VIEW` (owner) |
+| Managers | `GET /api/users`, `POST /api/users`, `PUT /api/users/:id`, `DELETE /api/users/:id` | `MANAGER_MANAGE` (owner) |
+| Hotel | `GET /api/hotel`, `GET /api/hotel/settings` | Authenticated |
+| Settings | `GET/PUT /api/settings`, `PUT /api/settings/hotel` | Read authenticated; writes require `SETTINGS_MANAGE` |
+| System | Current system/backup endpoints | See `apps/server/src/routes/system.ts` and Electron IPC |
 
-User, Role, Permission, Hotel, HotelSetting, RoomType, Room, Guest, Booking, BookingGuest,
-MenuCategory, MenuItem, RestaurantTable, RestaurantOrder, RestaurantOrderItem, Invoice,
-InvoiceItem, Payment, Tax, Discount, Expense, ExpenseCategory, CashSession, AuditLog,
-PrinterSetting, BackupRecord, Notification, Sequence, DailyClosing.
+**Important:** the Prisma schema retains legacy entities, but the current Express app no longer
+mounts the former rooms, guests, bookings, restaurant-order, invoice/payment, expenses, cash-session,
+search, reports, or audit-log routes. Their old renderer code must not be treated as working product
+features. Reintroduce those flows only as a separately scoped implementation, including server routes,
+services, permissions and tests.
 
-Money columns use Prisma `Decimal`. Never use JS floating point for billing calculations.
+## Development environment
 
-## Dev environment
+- Development database: `prisma/dev.db` (typically configured by `DATABASE_URL` in `.env`).
+- Production database: `%APPDATA%\Hotel Billing\data\hotel.db`.
+- Local API: `http://127.0.0.1:3847`.
+- Vite renderer: `http://127.0.0.1:5173`.
+- Local seed accounts currently include `admin / Admin@123` and `manager / Manager@123`. These are
+  development-only credentials; never use them in production.
 
-- Development database: `prisma/dev.db` (via `DATABASE_URL` in `.env`).
-- Production database: `%APPDATA%\Hotel Billing\data\hotel.db` (Electron resolves at startup; the
-  source-tree DB is dev-only).
-- Local API: `http://127.0.0.1:3847`. Renderer: Vite on `http://127.0.0.1:5173`.
-- Development credentials (change before production):
+## Setup, run, and validate
 
-| Username | Password | Role |
-|----------|----------|------|
-| admin | Admin@123 | ADMIN |
-| manager | Manager@123 | MANAGER |
-| reception | Reception@123 | RECEPTIONIST |
-| cashier | Cashier@123 | CASHIER (PIN: 1234) |
-| restaurant | Restaurant@123 | RESTAURANT_STAFF |
-| viewer | Viewer@123 | VIEWER |
+```powershell
+npm install
+npm run db:generate
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
 
-## Scripts
+Open `http://127.0.0.1:5173`; verify `http://127.0.0.1:3847/api/health`.
+For the desktop shell, keep `npm run dev` running in one terminal and run
+`npm run dev:electron` in another.
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Electron + API + Vite (concurrently) |
-| `npm run dev:server` | Start the local Express API only |
-| `npm run build` | Build all packages |
-| `npm run build:renderer` / `build:electron` | Renderer / main separately |
-| `npm run lint` | ESLint |
-| `npm test` | Vitest unit tests |
-| `npm run typecheck` | TypeScript project references |
-| `npm run db:migrate` | Prisma migrate (dev) |
-| `npm run db:migrate:deploy` | Prisma migrate (production) |
-| `npm run db:seed` | Seed roles, rooms, menu, users |
-| `npm run db:studio` | Prisma Studio |
-| `npm run package` | electron-builder dir output |
-| `npm run installer` | `release/HotelBillingSetup.exe` |
+Validation commands:
 
-## Build / installer
+```powershell
+npm test
+npm run typecheck
+npm run build:renderer
+npm run build:electron
+```
 
-- `npm run installer` → `release/HotelBillingSetup.exe`.
-- NSIS Windows x64 installer; desktop + Start Menu shortcuts; preserves AppData DB/backups/logs
-  on upgrade; does not delete user data on uninstall.
-- Production checklist: change seed passwords, configure hotel GSTIN/tax rates, configure
-  printers, enable automatic backups, verify A4 + thermal print templates, run
-  `prisma migrate deploy` against the AppData DB path, smoke-test check-in → POS → checkout →
-  invoice → backup.
+`npm run typecheck` checks the renderer, server, and Electron projects using their individual
+TypeScript configurations. The root `tsconfig.json` is a legacy aggregate config and should not be
+invoked directly with `tsc -b`; it includes renderer/Vite code under incompatible CommonJS settings.
+Do not run database reset/seed commands against a production or user database.
 
-## Design rules
+## Work completed and verified
 
-1. Money math lives only in `@hotel-billing/shared` billing engine (`Decimal.js`).
-2. Permissions are enforced in server services, not only in the UI.
-3. Financial writes use Prisma transactions.
-4. Invoice/order/payment numbers come from the `Sequence` table (transaction-safe).
-5. Production DB path is AppData; source-tree DB is for development only.
-6. Backup restore requires confirmation (Phase 10).
-7. Password hashes and PIN hashes are redacted from all logs (Pino redaction).
+- Fixed Electron's package entry to the compiled main file and updated `dev:electron` to compile
+  Electron TypeScript before launching.
+- Fixed browser API auth headers to read the live Zustand auth token. Auth state is in
+  `sessionStorage`, allowing reload within the same tab. An `UNAUTHENTICATED` response now clears
+  stale auth state and returns protected routes to login.
+- Aligned current renderer navigation, page permissions, dashboard, menu, bills and analytics with
+  the current API. Added menu category/item CRUD, bill creation/list/detail/cancellation, and
+  receipt/A4 print actions.
+- Removed stale global-search commands for endpoints not mounted by the current server.
+- Replaced old room/guest/booking/expense/cash/audit renderer screens with explicit Phase 2
+  placeholders so they do not call removed APIs.
+- Live API checks: admin can access dashboard, menu, bills, analytics, manager accounts and
+  settings; manager can access dashboard/menu/bills and receives 403 for analytics, manager accounts
+  and settings.
+- Live menu test: create/update/soft-delete succeeded. Temporary test records were archived.
+  Current role configuration allows managers to manage menu items.
+- Browser checks: manager login survives page reload; manager sees only permitted navigation and
+  direct Analytics/Managers access is denied. Revoking the manager session then reloading clears
+  the stale token and returns the browser to login.
+- Browser bill flow: created, inspected, and cancelled temporary bill `INV-2026-000003`;
+  cancellation remains in development history by design and is excluded from revenue analytics.
+- Electron dev launch remained running without the previous missing-`main.js` startup error.
+- `npm run typecheck` passed for renderer, server, and Electron after splitting checks by each
+  app's TypeScript configuration.
+- `npm test` passed (3 tests in the shared billing test file).
+- `npm run build:renderer` passed after the current renderer integration.
 
-## Future sync (not in v1)
+## Remaining work and known issues
+
+1. **Printing:** verify printer discovery and receipt output or print preview using Electron on
+   Windows with an available printer. Electron launch was checked, but no physical printer output
+   was verified.
+2. **Incomplete current pages:** manager account and settings UI are placeholders. Legacy room,
+   guest, booking, restaurant order/KOT, expense, cash-session and audit workflows are out of current
+   server scope.
+3. **Analytics:** verify date grouping, especially empty week buckets. Profit must not be displayed
+   until cost data exists.
+4. `npm install` reported dependency audit findings. Review them separately; do not run
+   `npm audit fix --force` without assessing breaking changes.
+5. Vite reports a non-blocking bundle chunk-size warning.
+
+## Working rules
+
+1. Money calculations use the shared Decimal billing engine; do not use JavaScript floating-point
+   arithmetic for financial totals.
+2. Enforce all permissions on the server and mirror them in the UI.
+3. Keep financial writes transactional and retain cancelled bills for history.
+4. Preserve the existing SQLite database. Never reset/delete user data to make a test pass.
+5. Do not restore a legacy UI/API module unless implementing its complete route/service/permission/
+   validation flow and tests.
+6. Password hashes and PIN hashes must not appear in logs.
+
+## Future sync (not in current scope)
 
 Desktop → Local SQLite → Sync Service → Cloud API → PostgreSQL.

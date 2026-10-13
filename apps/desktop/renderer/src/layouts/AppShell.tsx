@@ -1,18 +1,12 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
-  BedDouble,
-  Users,
-  CalendarCheck,
   UtensilsCrossed,
   FileText,
   BarChart3,
   Settings,
   LogOut,
-  Receipt,
-  Vault,
   ClipboardList,
-  History,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/services/api';
@@ -25,18 +19,12 @@ import { ConfirmDialog } from '@/components/ui/confirmDialog';
 import { Toaster } from '@/components/ui/toaster';
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, permission: 'DASHBOARD_VIEW' },
-  { to: '/rooms', label: 'Rooms', icon: BedDouble, permission: 'ROOM_VIEW' },
-  { to: '/guests', label: 'Guests', icon: Users, permission: 'GUEST_VIEW' },
-  { to: '/bookings', label: 'Bookings', icon: CalendarCheck, permission: 'ROOM_VIEW' },
-  { to: '/restaurant', label: 'Restaurant', icon: UtensilsCrossed, permission: 'RESTAURANT_VIEW' },
-  { to: '/invoices', label: 'Invoices', icon: FileText, permission: 'INVOICE_VIEW' },
-  { to: '/expenses', label: 'Expenses', icon: Receipt, permission: 'EXPENSE_CREATE' },
-  { to: '/cash', label: 'Cash Session', icon: Vault, permission: 'DASHBOARD_VIEW' },
-  { to: '/reports', label: 'Reports', icon: BarChart3, permission: 'REPORT_VIEW' },
-  { to: '/users', label: 'Users', icon: ClipboardList, permission: 'USER_MANAGE' },
-  { to: '/audit', label: 'Audit Log', icon: History, permission: 'AUDIT_LOG_VIEW' },
-  { to: '/settings', label: 'Settings', icon: Settings, permission: 'DASHBOARD_VIEW' },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/restaurant', label: 'Menu & Billing', icon: UtensilsCrossed, permission: 'MENU_VIEW' },
+  { to: '/invoices', label: 'Bills', icon: FileText, permission: 'BILL_VIEW' },
+  { to: '/reports', label: 'Analytics', icon: BarChart3, permission: 'ANALYTICS_VIEW' },
+  { to: '/users', label: 'Managers', icon: ClipboardList, permission: 'MANAGER_MANAGE' },
+  { to: '/settings', label: 'Settings', icon: Settings, permission: 'SETTINGS_MANAGE' },
 ];
 
 export function AppShell() {

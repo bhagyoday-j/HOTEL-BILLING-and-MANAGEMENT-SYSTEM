@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@hotel-billing/shared": "*",
-    "@prisma/client": "^6.5.0",
+    "@prisma/client": "^5.12.0",
     "argon2": "^0.41.1",
     "cors": "^2.8.5",
     "decimal.js": "^10.5.0",

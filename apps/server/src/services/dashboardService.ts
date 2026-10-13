@@ -1,99 +1,98 @@
+import { startOfDay, endOfDay } from '../utils/dates';
 import { getPrisma } from '../utils/prisma';
 
-function startOfDay(date = new Date()): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
+const REVENUE_EXCLUDED_STATUSES = ['CANCELLED', 'DRAFT', 'REFUNDED'];
+
+function num(value: unknown): number {
+  return Number(value?.toString() ?? '0');
 }
 
-function endOfDay(date = new Date()): Date {
-  const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
+export interface DashboardContext {
+  isAdmin: boolean;
 }
 
+/**
+ * Role-aware dashboard summary.
+ * - ADMIN: business overview (revenue, bill counts, recent bills).
+ * - MANAGER: only today's billing activity — no business-wide revenue.
+ */
 export class DashboardService {
-  async getSummary() {
+  async getSummary(ctx: DashboardContext) {
     const prisma = getPrisma();
-    const from = startOfDay();
-    const to = endOfDay();
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const [
-      occupiedRooms,
-      availableRooms,
-      reservedRooms,
-      todayInvoices,
-      todayCheckIns,
-      todayCheckOuts,
-      todayOrders,
-    ] = await Promise.all([
-      prisma.room.count({ where: { status: 'OCCUPIED', deletedAt: null } }),
-      prisma.room.count({ where: { status: 'AVAILABLE', deletedAt: null } }),
-      prisma.room.count({ where: { status: 'RESERVED', deletedAt: null } }),
+    const [todayBills, recentBills] = await Promise.all([
       prisma.invoice.findMany({
         where: {
-          invoiceDate: { gte: from, lte: to },
-          status: { not: 'CANCELLED' },
           deletedAt: null,
+          status: { notIn: REVENUE_EXCLUDED_STATUSES },
+          invoiceDate: { gte: startOfDay(now), lte: endOfDay(now) },
         },
+        select: { grandTotal: true },
       }),
-      prisma.booking.count({
-        where: {
-          actualCheckIn: { gte: from, lte: to },
-          status: 'CHECKED_IN',
-          deletedAt: null,
-        },
-      }),
-      prisma.booking.count({
-        where: {
-          actualCheckOut: { gte: from, lte: to },
-          status: 'CHECKED_OUT',
-          deletedAt: null,
-        },
-      }),
-      prisma.restaurantOrder.findMany({
-        where: {
-          createdAt: { gte: from, lte: to },
-          status: { not: 'CANCELLED' },
-          deletedAt: null,
+      prisma.invoice.findMany({
+        where: { deletedAt: null },
+        orderBy: { invoiceDate: 'desc' },
+        take: 8,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          invoiceDate: true,
+          grandTotal: true,
+          guestName: true,
+          status: true,
         },
       }),
     ]);
 
-    const todayRevenue = todayInvoices.reduce(
-      (sum, inv) => sum + Number(inv.grandTotal.toString()),
-      0,
-    );
-    const restaurantSales = todayOrders.reduce(
-      (sum, ord) => sum + Number(ord.grandTotal.toString()),
-      0,
-    );
+    const today = {
+      bills: todayBills.length,
+      revenue: todayBills.reduce((s, b) => s + num(b.grandTotal), 0).toFixed(2),
+    };
 
-    const payments = await prisma.payment.findMany({
-      where: {
-        createdAt: { gte: from, lte: to },
-        deletedAt: null,
-      },
-    });
+    const base = {
+      today,
+      recentBills: recentBills.map((b) => ({
+        id: b.id,
+        billNumber: b.invoiceNumber,
+        date: b.invoiceDate,
+        customerName: b.guestName,
+        total: b.grandTotal.toString(),
+        status: b.status,
+      })),
+    };
 
-    const byMethod = (method: string) =>
-      payments
-        .filter((p) => p.method === method)
-        .reduce((sum, p) => sum + Number(p.amount.toString()), 0);
+    if (!ctx.isAdmin) {
+      return { ...base, financials: null };
+    }
+
+    const [monthBills, allBills] = await Promise.all([
+      prisma.invoice.findMany({
+        where: {
+          deletedAt: null,
+          status: { notIn: REVENUE_EXCLUDED_STATUSES },
+          invoiceDate: { gte: monthStart, lte: endOfDay(now) },
+        },
+        select: { grandTotal: true },
+      }),
+      prisma.invoice.findMany({
+        where: { deletedAt: null, status: { notIn: REVENUE_EXCLUDED_STATUSES } },
+        select: { grandTotal: true },
+      }),
+    ]);
+
+    const totalRevenue = allBills.reduce((s, b) => s + num(b.grandTotal), 0);
 
     return {
-      todayRevenue: todayRevenue.toFixed(2),
-      todayBills: todayInvoices.length,
-      todayCheckIns,
-      todayCheckOuts,
-      occupiedRooms,
-      availableRooms,
-      reservedRooms,
-      restaurantSales: restaurantSales.toFixed(2),
-      cashCollection: byMethod('CASH').toFixed(2),
-      upiCollection: byMethod('UPI').toFixed(2),
-      cardCollection: byMethod('CARD').toFixed(2),
-      creditAmount: byMethod('CREDIT').toFixed(2),
+      ...base,
+      financials: {
+        totalRevenue: totalRevenue.toFixed(2),
+        totalBills: allBills.length,
+        monthRevenue: monthBills.reduce((s, b) => s + num(b.grandTotal), 0).toFixed(2),
+        monthBills: monthBills.length,
+        avgBillValue: allBills.length > 0 ? (totalRevenue / allBills.length).toFixed(2) : '0.00',
+      },
     };
   }
 }

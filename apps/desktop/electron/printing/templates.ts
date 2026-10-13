@@ -44,17 +44,6 @@ export interface InvoiceTemplateData {
   receiptFooter?: string | null;
 }
 
-export interface KotTemplateData {
-  kotNumber: string;
-  orderNumber: string;
-  tableName?: string | null;
-  roomNumber?: string | null;
-  orderType: string;
-  createdAt: string;
-  hotelName: string;
-  items: Array<{ name: string; quantity: string; notes?: string | null }>;
-}
-
 function esc(value: unknown): string {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -185,59 +174,6 @@ export function renderInvoiceHtml(data: InvoiceTemplateData, format: 'A4' | 'THE
   ${data.terms ? `<div class="terms">${esc(data.terms)}</div>` : ''}
   <div class="footer">${esc(data.receiptFooter ?? 'Thank you for your stay!')}</div>
 </div>
-</body>
-</html>`;
-}
-
-export function renderKotHtml(data: KotTemplateData): string {
-  const rows = data.items
-    .map(
-      (i) => `
-      <tr>
-        <td class="qty">${esc(i.quantity)}</td>
-        <td>${esc(i.name)}${i.notes ? `<div class="notes">↳ ${esc(i.notes)}</div>` : ''}</td>
-      </tr>`,
-    )
-    .join('');
-
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<title>${esc(data.kotNumber)}</title>
-<style>
-  @page { size: 80mm auto; margin: 3mm; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; color: #000; width: 80mm; }
-  .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 4px; margin-bottom: 6px; }
-  .header h1 { font-size: 15px; }
-  .header p { font-size: 11px; }
-  .kot-title { text-align: center; font-size: 18px; font-weight: bold; margin: 4px 0; letter-spacing: 2px; }
-  .meta { border-bottom: 1px dashed #000; padding-bottom: 4px; margin-bottom: 6px; font-size: 11px; }
-  table { width: 100%; border-collapse: collapse; }
-  td { padding: 3px 2px; vertical-align: top; }
-  td.qty { width: 14%; font-weight: bold; font-size: 14px; text-align: right; padding-right: 6px; }
-  .notes { font-size: 10px; color: #333; }
-  .footer { border-top: 1px dashed #000; margin-top: 8px; padding-top: 4px; text-align: center; font-size: 10px; }
-</style>
-</head>
-<body>
-  <div class="header">
-    <h1>${esc(data.hotelName.toUpperCase())}</h1>
-    <p>KITCHEN ORDER TICKET</p>
-  </div>
-  <div class="kot-title">${esc(data.kotNumber)}</div>
-  <div class="meta">
-    Order: ${esc(data.orderNumber)}<br/>
-    ${data.tableName ? `Table: ${esc(data.tableName)}<br/>` : ''}
-    ${data.roomNumber ? `Room: ${esc(data.roomNumber)}<br/>` : ''}
-    Type: ${esc(data.orderType.replace(/_/g, ' '))}<br/>
-    Time: ${esc(new Date(data.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }))}
-  </div>
-  <table>
-    ${rows}
-  </table>
-  <div class="footer">*** ${esc(new Date(data.createdAt).toLocaleDateString('en-IN'))} ***</div>
 </body>
 </html>`;
 }

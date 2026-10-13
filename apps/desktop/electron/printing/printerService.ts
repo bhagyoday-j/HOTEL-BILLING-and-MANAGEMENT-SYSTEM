@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger } from '../security/logger';
-import { renderInvoiceHtml, renderKotHtml, type InvoiceTemplateData, type KotTemplateData } from './templates';
+import { renderInvoiceHtml, type InvoiceTemplateData } from './templates';
 import type { PrintFormat } from '@hotel-billing/shared';
 
 export interface InstalledPrinter {
@@ -77,14 +77,6 @@ export class PrinterService {
     opts: { format: PrintFormat; printerName?: string; silent?: boolean; copies?: number },
   ): Promise<void> {
     const html = renderInvoiceHtml(data, opts.format);
-    await this.printHtml(html, opts);
-  }
-
-  async printKot(
-    data: KotTemplateData,
-    opts: { printerName?: string; silent?: boolean; copies?: number },
-  ): Promise<void> {
-    const html = renderKotHtml(data);
     await this.printHtml(html, opts);
   }
 

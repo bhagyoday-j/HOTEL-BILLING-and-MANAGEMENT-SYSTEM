@@ -7,23 +7,59 @@ export type ElectronApi = {
     login: (username: string, password: string) => Promise<unknown>;
     logout: (userId?: string) => Promise<unknown>;
   };
-  rooms: {
+  dashboard: {
+    summary: () => Promise<unknown>;
+  };
+  menu: {
+    list: (query?: Record<string, unknown>) => Promise<unknown>;
+    createCategory: (data: unknown) => Promise<unknown>;
+    createItem: (data: unknown) => Promise<unknown>;
+    updateItem: (id: string, data: unknown) => Promise<unknown>;
+    deleteItem: (id: string) => Promise<unknown>;
+  };
+  bills: {
+    list: (query?: Record<string, unknown>) => Promise<unknown>;
+    get: (id: string) => Promise<unknown>;
+    create: (data: unknown) => Promise<unknown>;
+    cancel: (id: string, reason: string) => Promise<unknown>;
+  };
+  analytics: {
+    summary: (query?: Record<string, unknown>) => Promise<unknown>;
+  };
+  users: {
     list: () => Promise<unknown>;
-    grid: () => Promise<unknown>;
+    create: (data: unknown) => Promise<unknown>;
+    update: (id: string, data: unknown) => Promise<unknown>;
+    remove: (id: string) => Promise<unknown>;
   };
   hotel: {
     get: () => Promise<unknown>;
     getSettings: () => Promise<unknown>;
   };
-  dashboard: {
-    summary: () => Promise<unknown>;
+  settings: {
+    updateHotel: (data: unknown) => Promise<unknown>;
+    update: (data: unknown) => Promise<unknown>;
+  };
+  system: {
+    dbIntegrity: () => Promise<unknown>;
+    serverStatus: () => Promise<unknown>;
   };
   print: {
     getPrinters: () => Promise<unknown>;
-    testPrint: () => Promise<unknown>;
+    invoice: (payload: unknown) => Promise<unknown>;
+    test: (printerName?: string) => Promise<unknown>;
+    saveCopy: (payload: unknown) => Promise<unknown>;
   };
   backup: {
     create: () => Promise<unknown>;
+    list: () => Promise<unknown>;
+    restore: (filePath: string) => Promise<unknown>;
+    validate: (filePath: string) => Promise<unknown>;
+    export: (filePath: string) => Promise<unknown>;
+    openFolder: () => Promise<unknown>;
+  };
+  shell: {
+    openExternal: (url: string) => Promise<unknown>;
   };
 };
 

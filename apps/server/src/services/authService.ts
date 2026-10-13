@@ -74,50 +74,6 @@ export class AuthService {
     return { user: sessionUser, token: session.token };
   }
 
-  async pinLogin(username: string, pin: string): Promise<{ user: SessionUser; token: string }> {
-    const prisma = getPrisma();
-    const user = await prisma.user.findFirst({
-      where: { username, deletedAt: null },
-      include: {
-        role: {
-          include: {
-            permissions: { include: { permission: true } },
-          },
-        },
-      },
-    });
-
-    if (!user || !user.isActive || !user.pinHash) {
-      throw new AppError('INVALID_CREDENTIALS', 'Invalid PIN credentials', 401);
-    }
-
-    const valid = await argon2.verify(user.pinHash, pin);
-    if (!valid) {
-      throw new AppError('INVALID_CREDENTIALS', 'Invalid PIN credentials', 401);
-    }
-
-    await this.audit.log({
-      userId: user.id,
-      action: 'LOGIN',
-      entityType: 'User',
-      entityId: user.id,
-      entityRef: `${user.username}:PIN`,
-    });
-
-    const session = sessionStore.create(user.id, user.username);
-
-    return {
-      user: {
-        id: user.id,
-        username: user.username,
-        fullName: user.fullName,
-        roleCode: user.role.code,
-        permissions: user.role.permissions.map((rp) => rp.permission.code),
-      },
-      token: session.token,
-    };
-  }
-
   async logout(userId?: string, token?: string): Promise<void> {
     if (token) sessionStore.revoke(token);
     if (userId) {

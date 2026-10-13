@@ -370,6 +370,9 @@ model Discount {
 model Invoice {
   id              String    @id @default(cuid())
   invoiceNumber   String    @unique
+  // Idempotency key sent by the billing UI so a double-submit returns the
+  // existing bill instead of creating a duplicate.
+  clientRequestId String?   @unique
   status          String    @default("DRAFT") // InvoiceStatus
   invoiceDate     DateTime  @default(now())
   guestId         String?

@@ -1,18 +1,3 @@
-export type RoomStatus =
-  | 'AVAILABLE'
-  | 'OCCUPIED'
-  | 'RESERVED'
-  | 'CLEANING'
-  | 'MAINTENANCE'
-  | 'BLOCKED';
-
-export type BookingStatus =
-  | 'CONFIRMED'
-  | 'CHECKED_IN'
-  | 'CHECKED_OUT'
-  | 'CANCELLED'
-  | 'NO_SHOW';
-
 export type InvoiceStatus =
   | 'DRAFT'
   | 'ISSUED'
@@ -20,22 +5,6 @@ export type InvoiceStatus =
   | 'PARTIALLY_PAID'
   | 'CANCELLED'
   | 'REFUNDED';
-
-export type PaymentMethod = 'CASH' | 'UPI' | 'CARD' | 'BANK_TRANSFER' | 'CREDIT' | 'OTHER';
-
-export type OrderType = 'DINE_IN' | 'TAKEAWAY' | 'ROOM_SERVICE';
-
-export type OrderStatus =
-  | 'DRAFT'
-  | 'HELD'
-  | 'SENT'
-  | 'PREPARING'
-  | 'READY'
-  | 'COMPLETED'
-  | 'CANCELLED'
-  | 'CHARGED_TO_ROOM';
-
-export type TableStatus = 'AVAILABLE' | 'OCCUPIED' | 'RESERVED';
 
 export type PrintFormat = 'A4' | 'THERMAL_80' | 'THERMAL_58';
 

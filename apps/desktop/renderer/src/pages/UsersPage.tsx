@@ -1,4 +1,3 @@
-import { Button } from '@/components/ui/button';
 import { ComingSoonPage } from './ComingSoonPage';
 
 export function UsersPage() {

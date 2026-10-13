@@ -14,33 +14,34 @@ const prisma = new PrismaClient();
 const DEV_USERS: Array<{
   username: string;
   password: string;
-  pin?: string;
   fullName: string;
   role: RoleCode;
 }> = [
   { username: 'admin', password: 'Admin@123', fullName: 'System Administrator', role: 'ADMIN' },
   { username: 'manager', password: 'Manager@123', fullName: 'Hotel Manager', role: 'MANAGER' },
-  {
-    username: 'reception',
-    password: 'Reception@123',
-    fullName: 'Front Desk Receptionist',
-    role: 'RECEPTIONIST',
-  },
-  {
-    username: 'cashier',
-    password: 'Cashier@123',
-    pin: '1234',
-    fullName: 'Front Desk Cashier',
-    role: 'CASHIER',
-  },
-  {
-    username: 'restaurant',
-    password: 'Restaurant@123',
-    fullName: 'Restaurant Staff',
-    role: 'RESTAURANT_STAFF',
-  },
-  { username: 'viewer', password: 'Viewer@123', fullName: 'Read-Only Viewer', role: 'VIEWER' },
 ];
+
+/**
+ * Two-role model: every account must end up as ADMIN or MANAGER.
+ * Any legacy account (reception, cashier, restaurant, viewer, …) is
+ * reassigned to MANAGER so nobody is locked out. No users are deleted.
+ */
+async function normalizeRolesAndUsers() {
+  const adminRole = await prisma.role.findUniqueOrThrow({ where: { code: 'ADMIN' } });
+  const managerRole = await prisma.role.findUniqueOrThrow({ where: { code: 'MANAGER' } });
+
+  // Reassign users holding retired roles to MANAGER (keeps accounts + data intact).
+  await prisma.user.updateMany({
+    where: { roleId: { notIn: [adminRole.id, managerRole.id] } },
+    data: { roleId: managerRole.id },
+  });
+
+  // Retire roles that no longer exist in the application.
+  await prisma.role.deleteMany({ where: { code: { notIn: [...ROLES] } } });
+
+  // Retire permission codes that are no longer part of the permission set.
+  await prisma.permission.deleteMany({ where: { code: { notIn: [...PERMISSIONS] } } });
+}
 
 async function seedRolesAndPermissions() {
   const permissionRecords: Record<string, string> = {};
@@ -70,6 +71,19 @@ async function seedRolesAndPermissions() {
     });
 
     const allowed = ROLE_PERMISSIONS[roleCode] as PermissionCode[];
+    const allowedSet = new Set(allowed);
+
+    // Remove any grants that are no longer part of the role's permission set.
+    const currentPermissions = await prisma.rolePermission.findMany({
+      where: { roleId: role.id },
+      include: { permission: true },
+    });
+    for (const current of currentPermissions) {
+      if (!allowedSet.has(current.permission.code as PermissionCode)) {
+        await prisma.rolePermission.delete({ where: { id: current.id } });
+      }
+    }
+
     for (const permCode of allowed) {
       await prisma.rolePermission.upsert({
         where: {
@@ -92,21 +106,20 @@ async function seedUsers() {
   for (const u of DEV_USERS) {
     const role = await prisma.role.findUniqueOrThrow({ where: { code: u.role } });
     const passwordHash = await argon2.hash(u.password);
-    const pinHash = u.pin ? await argon2.hash(u.pin) : null;
 
     await prisma.user.upsert({
       where: { username: u.username },
       update: {
         passwordHash,
-        pinHash,
         fullName: u.fullName,
         roleId: role.id,
         isActive: true,
+        failedLogins: 0,
+        lockedUntil: null,
       },
       create: {
         username: u.username,
         passwordHash,
-        pinHash,
         fullName: u.fullName,
         roleId: role.id,
         isActive: true,
@@ -136,14 +149,10 @@ async function seedHotel() {
           { key: 'currency', value: 'INR' },
           { key: 'invoicePrefix', value: 'INV' },
           { key: 'invoiceNumberFormat', value: '{PREFIX}-{YEAR}-{SEQ}' },
-          { key: 'orderPrefix', value: 'ORD' },
-          { key: 'kotPrefix', value: 'KOT' },
-          { key: 'paymentPrefix', value: 'PAY' },
-          { key: 'bookingPrefix', value: 'BKG' },
-          { key: 'receiptFooter', value: 'Thank you for staying with us!' },
+          { key: 'receiptFooter', value: 'Thank you for visiting us!' },
           {
             key: 'termsAndConditions',
-            value: 'All disputes subject to Pune jurisdiction. Check-out time 12:00 PM.',
+            value: 'All disputes subject to Pune jurisdiction.',
           },
           { key: 'cgstRate', value: '9' },
           { key: 'sgstRate', value: '9' },
@@ -175,78 +184,7 @@ async function seedTaxes() {
   }
 }
 
-async function seedRoomTypesAndRooms() {
-  const types = [
-    {
-      name: 'Single',
-      description: 'Comfortable single occupancy room',
-      basePrice: '2500',
-      maxGuests: 1,
-      amenities: JSON.stringify(['WiFi', 'TV', 'AC']),
-    },
-    {
-      name: 'Double',
-      description: 'Spacious double occupancy room',
-      basePrice: '3500',
-      maxGuests: 2,
-      amenities: JSON.stringify(['WiFi', 'TV', 'AC', 'Mini Bar']),
-    },
-    {
-      name: 'Deluxe',
-      description: 'Premium deluxe room with city view',
-      basePrice: '5500',
-      maxGuests: 3,
-      amenities: JSON.stringify(['WiFi', 'TV', 'AC', 'Mini Bar', 'Bathtub']),
-    },
-    {
-      name: 'Suite',
-      description: 'Luxury suite with living area',
-      basePrice: '9000',
-      maxGuests: 4,
-      amenities: JSON.stringify(['WiFi', 'TV', 'AC', 'Mini Bar', 'Bathtub', 'Living Room']),
-    },
-  ];
-
-  const typeMap: Record<string, string> = {};
-  for (const t of types) {
-    const record = await prisma.roomType.upsert({
-      where: { name: t.name },
-      update: t,
-      create: t,
-    });
-    typeMap[t.name] = record.id;
-  }
-
-  const rooms: Array<{ number: string; floor: number; type: string }> = [
-    { number: '101', floor: 1, type: 'Single' },
-    { number: '102', floor: 1, type: 'Single' },
-    { number: '103', floor: 1, type: 'Double' },
-    { number: '104', floor: 1, type: 'Double' },
-    { number: '201', floor: 2, type: 'Deluxe' },
-    { number: '202', floor: 2, type: 'Deluxe' },
-    { number: '203', floor: 2, type: 'Suite' },
-    { number: '204', floor: 2, type: 'Suite' },
-  ];
-
-  for (const r of rooms) {
-    await prisma.room.upsert({
-      where: { number: r.number },
-      update: {
-        floor: r.floor,
-        roomTypeId: typeMap[r.type],
-        status: 'AVAILABLE',
-      },
-      create: {
-        number: r.number,
-        floor: r.floor,
-        roomTypeId: typeMap[r.type],
-        status: 'AVAILABLE',
-      },
-    });
-  }
-}
-
-async function seedRestaurant() {
+async function seedMenu() {
   const categories = [
     { name: 'Breakfast', sortOrder: 1 },
     { name: 'Lunch', sortOrder: 2 },
@@ -273,7 +211,6 @@ async function seedRestaurant() {
       category: 'Breakfast',
       price: '120',
       taxRate: '5',
-      kitchenName: 'Masala Dosa',
     },
     {
       name: 'Idli Sambar',
@@ -281,64 +218,20 @@ async function seedRestaurant() {
       category: 'Breakfast',
       price: '80',
       taxRate: '5',
-      kitchenName: 'Idli',
     },
-    {
-      name: 'Veg Thali',
-      sku: 'LN-001',
-      category: 'Lunch',
-      price: '250',
-      taxRate: '5',
-      kitchenName: 'Veg Thali',
-    },
+    { name: 'Veg Thali', sku: 'LN-001', category: 'Lunch', price: '250', taxRate: '5' },
     {
       name: 'Paneer Butter Masala',
       sku: 'DN-001',
       category: 'Dinner',
       price: '280',
       taxRate: '5',
-      kitchenName: 'PBM',
     },
-    {
-      name: 'Butter Naan',
-      sku: 'DN-002',
-      category: 'Dinner',
-      price: '60',
-      taxRate: '5',
-      kitchenName: 'Butter Naan',
-    },
-    {
-      name: 'Veg Burger',
-      sku: 'SN-001',
-      category: 'Snacks',
-      price: '150',
-      taxRate: '5',
-      kitchenName: 'Veg Burger',
-    },
-    {
-      name: 'Tea',
-      sku: 'BV-001',
-      category: 'Beverages',
-      price: '30',
-      taxRate: '5',
-      kitchenName: 'Tea',
-    },
-    {
-      name: 'Filter Coffee',
-      sku: 'BV-002',
-      category: 'Beverages',
-      price: '40',
-      taxRate: '5',
-      kitchenName: 'Coffee',
-    },
-    {
-      name: 'Gulab Jamun',
-      sku: 'DS-001',
-      category: 'Desserts',
-      price: '90',
-      taxRate: '5',
-      kitchenName: 'Gulab Jamun',
-    },
+    { name: 'Butter Naan', sku: 'DN-002', category: 'Dinner', price: '60', taxRate: '5' },
+    { name: 'Veg Burger', sku: 'SN-001', category: 'Snacks', price: '150', taxRate: '5' },
+    { name: 'Tea', sku: 'BV-001', category: 'Beverages', price: '30', taxRate: '5' },
+    { name: 'Filter Coffee', sku: 'BV-002', category: 'Beverages', price: '40', taxRate: '5' },
+    { name: 'Gulab Jamun', sku: 'DS-001', category: 'Desserts', price: '90', taxRate: '5' },
   ];
 
   for (const item of items) {
@@ -348,7 +241,6 @@ async function seedRestaurant() {
         name: item.name,
         price: item.price,
         taxRate: item.taxRate,
-        kitchenName: item.kitchenName,
         categoryId: catMap[item.category],
         isAvailable: true,
       },
@@ -357,51 +249,16 @@ async function seedRestaurant() {
         sku: item.sku,
         price: item.price,
         taxRate: item.taxRate,
-        kitchenName: item.kitchenName,
         categoryId: catMap[item.category],
         isAvailable: true,
       },
-    });
-  }
-
-  const tables = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'];
-  for (const name of tables) {
-    await prisma.restaurantTable.upsert({
-      where: { name },
-      update: { status: 'AVAILABLE' },
-      create: { name, capacity: 4, status: 'AVAILABLE' },
-    });
-  }
-}
-
-async function seedExpenseCategories() {
-  const cats = [
-    'Electricity',
-    'Maintenance',
-    'Food supplies',
-    'Cleaning',
-    'Salary',
-    'Transport',
-    'Other',
-  ];
-  for (const name of cats) {
-    await prisma.expenseCategory.upsert({
-      where: { name },
-      update: {},
-      create: { name, isActive: true },
     });
   }
 }
 
 async function seedSequences() {
   const year = new Date().getFullYear();
-  const sequences = [
-    { key: 'INV', prefix: 'INV', year },
-    { key: 'ORD', prefix: 'ORD', year },
-    { key: 'KOT', prefix: 'KOT', year },
-    { key: 'PAY', prefix: 'PAY', year },
-    { key: 'BKG', prefix: 'BKG', year },
-  ];
+  const sequences = [{ key: 'INV', prefix: 'INV', year }];
 
   for (const s of sequences) {
     await prisma.sequence.upsert({
@@ -419,40 +276,17 @@ async function seedSequences() {
   }
 }
 
-async function seedPrinterSettings() {
-  const printers = [
-    { purpose: 'INVOICE', paperFormat: 'A4' },
-    { purpose: 'RECEIPT', paperFormat: 'THERMAL_80' },
-    { purpose: 'KOT', paperFormat: 'THERMAL_80' },
-  ];
-
-  for (const p of printers) {
-    await prisma.printerSetting.upsert({
-      where: { purpose: p.purpose },
-      update: {},
-      create: {
-        purpose: p.purpose,
-        paperFormat: p.paperFormat,
-        silentPrint: false,
-        copies: 1,
-      },
-    });
-  }
-}
-
 async function main() {
   // eslint-disable-next-line no-console
   console.log('Seeding database...');
 
   await seedRolesAndPermissions();
+  await normalizeRolesAndUsers();
   await seedUsers();
   await seedHotel();
   await seedTaxes();
-  await seedRoomTypesAndRooms();
-  await seedRestaurant();
-  await seedExpenseCategories();
+  await seedMenu();
   await seedSequences();
-  await seedPrinterSettings();
 
   // eslint-disable-next-line no-console
   console.log('Seed complete.');
@@ -460,7 +294,7 @@ async function main() {
   console.log('Dev credentials (CHANGE BEFORE PRODUCTION):');
   for (const u of DEV_USERS) {
     // eslint-disable-next-line no-console
-    console.log(`  ${u.username} / ${u.password}${u.pin ? ` (PIN: ${u.pin})` : ''} [${u.role}]`);
+    console.log(`  ${u.username} / ${u.password} [${u.role}]`);
   }
 }
 

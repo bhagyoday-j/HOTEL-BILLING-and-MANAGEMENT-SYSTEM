@@ -12,25 +12,11 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-const pinLoginSchema = z.object({
-  username: z.string().min(1),
-  pin: z.string().min(4).max(8),
-});
-
 authRouter.post(
   '/login',
   asyncHandler(async (req, res) => {
     const body = loginSchema.parse(req.body);
     const result = await authService.login(body.username, body.password);
-    res.json(ok(result));
-  }),
-);
-
-authRouter.post(
-  '/pin-login',
-  asyncHandler(async (req, res) => {
-    const body = pinLoginSchema.parse(req.body);
-    const result = await authService.pinLogin(body.username, body.pin);
     res.json(ok(result));
   }),
 );

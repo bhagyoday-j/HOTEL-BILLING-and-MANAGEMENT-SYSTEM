@@ -1,551 +1,442 @@
-import { useMemo, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Plus, Minus, Trash2, Send, CreditCard, XCircle, ClipboardList, Layers,
-} from 'lucide-react';
-import { api, type MenuItem, type RestaurantOrder } from '@/services/api';
+import { useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Minus, Plus, Pencil, Search, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { api, type MenuCategory, type MenuItem } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { Card, CardTitle } from '@/components/ui/card';
 import { EmptyState, ErrorState } from '@/components/ui/table';
-import { Card, CardTitle, CardValue } from '@/components/ui/card';
 import { confirmDialog } from '@/stores/confirmStore';
 import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
-import { formatCurrency, cn } from '@/utils/cn';
+import { formatCurrency } from '@/utils/cn';
 
 interface CartLine {
-  menuItemId: string;
-  name: string;
-  price: string;
-  taxRate: string;
+  item: MenuItem;
   quantity: number;
 }
 
 export function RestaurantPage() {
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [categoryId, setCategoryId] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
-  const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY' | 'ROOM_SERVICE'>('DINE_IN');
-  const [tableId, setTableId] = useState('');
-  const [bookingId, setBookingId] = useState('');
-  const [guestName, setGuestName] = useState('');
-  const [discount, setDiscount] = useState('0');
-  const [payingOrder, setPayingOrder] = useState<RestaurantOrder | null>(null);
+  const [customerName, setCustomerName] = useState('');
+  const [customerMobile, setCustomerMobile] = useState('');
+  const [itemDialogOpen, setItemDialogOpen] = useState(false);
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [createdBillNumber, setCreatedBillNumber] = useState<string | null>(null);
+  const requestId = useRef<string | null>(null);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const hasPermission = useAuthStore((s) => s.hasPermission);
+  const canManageMenu = hasPermission('MENU_MANAGE');
+  const canCreateBill = hasPermission('BILL_CREATE');
 
   const menuQuery = useQuery({
-    queryKey: ['restaurant-menu'],
+    queryKey: ['menu', search, categoryId],
     queryFn: async () => {
-      const res = await api.restaurant.menu();
+      const res = await api.menu.list({ search: search || undefined, categoryId: categoryId || undefined });
       if (!res.success) throw new Error(res.error.message);
       return res.data;
     },
   });
 
-  const tablesQuery = useQuery({
-    queryKey: ['restaurant-tables'],
-    queryFn: async () => {
-      const res = await api.restaurant.tables();
+  const saveItemMutation = useMutation({
+    mutationFn: async (values: ItemFormValues) => {
+      const res = editingItem
+        ? await api.menu.updateItem(editingItem.id, values)
+        : await api.menu.createItem(values);
       if (!res.success) throw new Error(res.error.message);
       return res.data;
     },
+    onSuccess: () => {
+      toast.success(editingItem ? 'Menu item updated' : 'Menu item created');
+      setItemDialogOpen(false);
+      setEditingItem(null);
+      void queryClient.invalidateQueries({ queryKey: ['menu'] });
+    },
+    onError: (err: Error) => toast.error('Menu item could not be saved', err.message),
   });
 
-  const activeStaysQuery = useQuery({
-    queryKey: ['bookings-active'],
-    queryFn: async () => {
-      const res = await api.bookings.list({ status: 'CHECKED_IN', pageSize: 100 });
+  const createCategoryMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await api.menu.createCategory(name);
       if (!res.success) throw new Error(res.error.message);
       return res.data;
     },
-    enabled: orderType === 'ROOM_SERVICE',
+    onSuccess: () => {
+      toast.success('Menu category created');
+      setCategoryDialogOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ['menu'] });
+    },
+    onError: (err: Error) => toast.error('Category could not be created', err.message),
   });
 
-  const openOrdersQuery = useQuery({
-    queryKey: ['restaurant-orders-open'],
-    queryFn: async () => {
-      const res = await api.restaurant.orders({ pageSize: 50 });
+  const deleteItemMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      const res = await api.menu.deleteItem(itemId);
+      if (!res.success) throw new Error(res.error.message);
+    },
+    onSuccess: () => {
+      toast.success('Menu item archived');
+      void queryClient.invalidateQueries({ queryKey: ['menu'] });
+    },
+    onError: (err: Error) => toast.error('Menu item could not be archived', err.message),
+  });
+
+  const createBillMutation = useMutation({
+    mutationFn: async () => {
+      if (!requestId.current) requestId.current = crypto.randomUUID();
+      const res = await api.bills.create({
+        clientRequestId: requestId.current,
+        customerName: customerName.trim() || undefined,
+        customerMobile: customerMobile.trim() || undefined,
+        items: cart.map(({ item, quantity }) => ({
+          menuItemId: item.id,
+          quantity: String(quantity),
+        })),
+      });
       if (!res.success) throw new Error(res.error.message);
       return res.data;
     },
-    refetchInterval: 30_000,
-  });
-
-  const createOrderMutation = useMutation({
-    mutationFn: () => {
-      const items = cart.map((c) => ({
-        menuItemId: c.menuItemId,
-        quantity: String(c.quantity),
-      }));
-      if (orderType === 'DINE_IN') {
-        return api.restaurant.createOrder({ orderType, tableId, items, orderDiscountAmount: discount });
-      }
-      if (orderType === 'ROOM_SERVICE') {
-        return api.restaurant.createOrder({ orderType, bookingId, items, orderDiscountAmount: discount, guestName });
-      }
-      return api.restaurant.createOrder({ orderType, guestName: guestName || 'Takeaway', items, orderDiscountAmount: discount });
-    },
-    onSuccess: (order) => {
-      toast.success(`Order ${order.orderNumber} sent to kitchen`, `KOT ${order.kotNumber}`);
+    onSuccess: (bill) => {
+      requestId.current = null;
       setCart([]);
-      setDiscount('0');
-      setGuestName('');
-      void queryClient.invalidateQueries({ queryKey: ['restaurant-orders-open'] });
-      void queryClient.invalidateQueries({ queryKey: ['restaurant-tables'] });
-      // Offer KOT print
-      void printKot(order.id);
+      setCustomerName('');
+      setCustomerMobile('');
+      setCreatedBillNumber(bill.billNumber);
+      toast.success('Bill created', bill.billNumber);
+      void queryClient.invalidateQueries({ queryKey: ['bills'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
     },
-    onError: (err: Error) => toast.error('Order failed', err.message),
+    onError: (err: Error) => toast.error('Bill could not be created', err.message),
   });
 
-  const printKot = async (orderId: string) => {
-    const res = await api.restaurant.getOrder(orderId);
-    if (!res.success) return;
-    const order = res.data;
-    await api.print.kot({
-      data: {
-        kotNumber: order.kotNumber,
-        orderNumber: order.orderNumber,
-        tableName: order.table?.name,
-        roomNumber: order.room?.number,
-        orderType: order.orderType,
-        createdAt: order.createdAt,
-        hotelName: 'Hotel',
-        items: order.items.map((i) => ({ name: i.name, quantity: i.quantity, notes: i.notes })),
-      },
+  const items = menuQuery.data?.items ?? [];
+  const categories = menuQuery.data?.categories ?? [];
+  const selectedCount = useMemo(() => cart.reduce((sum, line) => sum + line.quantity, 0), [cart]);
+
+  const addItem = (item: MenuItem) => {
+    setCart((current) => {
+      const existing = current.find((line) => line.item.id === item.id);
+      return existing
+        ? current.map((line) =>
+            line.item.id === item.id ? { ...line, quantity: line.quantity + 1 } : line,
+          )
+        : [...current, { item, quantity: 1 }];
     });
+    setCreatedBillNumber(null);
   };
 
-  const categories = menuQuery.data ?? [];
-  const items = useMemo(() => {
-    if (!activeCategory) return categories.flatMap((c) => c.items);
-    return categories.find((c) => c.id === activeCategory)?.items ?? [];
-  }, [categories, activeCategory]);
-
-  const cartTotals = useMemo(() => {
-    const gross = cart.reduce((s, c) => s + Number(c.price) * c.quantity, 0);
-    const discountNum = Number(discount || '0');
-    const taxable = Math.max(0, gross - discountNum);
-    const tax = cart.reduce((s, c) => {
-      const lineGross = Number(c.price) * c.quantity;
-      return s + (lineGross * Number(c.taxRate)) / 100;
-    }, 0);
-    const scaledTax = gross > 0 ? tax * (taxable / gross) : 0;
-    return { gross, taxable, tax: scaledTax, total: taxable + scaledTax };
-  }, [cart, discount]);
-
-  const addToCart = (item: MenuItem) => {
-    setCart((prev) => {
-      const existing = prev.find((c) => c.menuItemId === item.id);
-      if (existing) {
-        return prev.map((c) =>
-          c.menuItemId === item.id ? { ...c, quantity: c.quantity + 1 } : c,
-        );
-      }
-      return [
-        ...prev,
-        { menuItemId: item.id, name: item.name, price: item.price, taxRate: item.taxRate, quantity: 1 },
-      ];
-    });
+  const changeQuantity = (itemId: string, quantity: number) => {
+    setCart((current) =>
+      quantity <= 0
+        ? current.filter((line) => line.item.id !== itemId)
+        : current.map((line) => (line.item.id === itemId ? { ...line, quantity } : line)),
+    );
   };
 
-  const setQty = (menuItemId: string, qty: number) => {
-    if (qty <= 0) {
-      setCart((prev) => prev.filter((c) => c.menuItemId !== menuItemId));
-    } else {
-      setCart((prev) =>
-        prev.map((c) => (c.menuItemId === menuItemId ? { ...c, quantity: qty } : c)),
-      );
-    }
+  const openCreateItem = () => {
+    setEditingItem(null);
+    setItemDialogOpen(true);
   };
-
-  const canSubmit =
-    cart.length > 0 &&
-    (orderType === 'DINE_IN' ? tableId !== '' : orderType === 'ROOM_SERVICE' ? bookingId !== '' : true) &&
-    hasPermission('RESTAURANT_ORDER_CREATE');
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-4xl text-forest-deep">Restaurant POS</h1>
-          <p className="mt-1 text-sm text-ink-muted">Point of sale · Kitchen order tickets</p>
+          <h1 className="font-display text-4xl text-forest-deep">Menu & Billing</h1>
+          <p className="mt-1 text-sm text-ink-muted">Choose menu items, then create a customer bill.</p>
         </div>
-      </div>
-
-      <div className="flex min-h-0 flex-1 gap-4">
-        {/* Left: categories + tables */}
-        <div className="flex w-56 shrink-0 flex-col gap-3 overflow-y-auto">
-          <div className="space-y-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">Categories</p>
-            <button
-              type="button"
-              onClick={() => setActiveCategory(null)}
-              className={cn(
-                'w-full rounded-lg border px-3 py-2 text-left text-sm transition',
-                activeCategory === null
-                  ? 'border-brass bg-brass/10 text-ink'
-                  : 'border-border bg-paper-elevated text-ink-muted hover:border-brass/40',
-              )}
-            >
-              All items
-            </button>
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setActiveCategory(c.id)}
-                className={cn(
-                  'w-full rounded-lg border px-3 py-2 text-left text-sm transition',
-                  activeCategory === c.id
-                    ? 'border-brass bg-brass/10 text-ink'
-                    : 'border-border bg-paper-elevated text-ink-muted hover:border-brass/40',
-                )}
-              >
-                {c.name} <span className="text-xs">({c.items.length})</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Center: menu items */}
-        <div className="min-w-0 flex-1 overflow-y-auto">
-          {menuQuery.isError && <ErrorState message={(menuQuery.error as Error).message} />}
-          {menuQuery.isLoading ? (
-            <div className="grid grid-cols-3 gap-3">
-              {Array.from({ length: 9 }).map((_, i) => (
-                <div key={i} className="h-24 animate-pulse rounded-xl border border-border bg-paper-elevated" />
-              ))}
-            </div>
-          ) : items.length === 0 ? (
-            <EmptyState title="No menu items" description="Add menu items to start taking orders." />
-          ) : (
-            <div className="grid grid-cols-3 gap-3">
-              {items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  disabled={!item.isAvailable}
-                  onClick={() => addToCart(item)}
-                  className={cn(
-                    'rounded-xl border border-border bg-paper-elevated p-3 text-left transition hover:border-brass/60 hover:shadow-sm disabled:opacity-40',
-                  )}
-                >
-                  <div className="text-sm font-medium text-ink">{item.name}</div>
-                  <div className="mt-1 flex items-center justify-between">
-                    <span className="text-sm text-forest-deep">{formatCurrency(item.price)}</span>
-                    {!item.isAvailable && <span className="text-[10px] text-danger">SOLD OUT</span>}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Right: cart */}
-        <div className="flex w-96 shrink-0 flex-col rounded-2xl border border-border bg-paper-elevated">
-          <div className="border-b border-border p-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-lg text-forest-deep">Current Order</h2>
-              {cart.length > 0 && (
-                <Button variant="ghost" size="sm" className="text-danger" onClick={() => setCart([])}>
-                  <Trash2 className="h-3.5 w-3.5" /> Clear
-                </Button>
-              )}
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {(['DINE_IN', 'TAKEAWAY', 'ROOM_SERVICE'] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setOrderType(t)}
-                  className={cn(
-                    'rounded-lg border px-2 py-1.5 text-xs font-medium transition',
-                    orderType === t
-                      ? 'border-brass bg-brass/10 text-ink'
-                      : 'border-border text-ink-muted hover:border-brass/40',
-                  )}
-                >
-                  {t === 'DINE_IN' ? 'Dine-in' : t === 'TAKEAWAY' ? 'Takeaway' : 'Room service'}
-                </button>
-              ))}
-            </div>
-            {orderType === 'DINE_IN' && (
-              <div className="mt-3 space-y-1.5">
-                <Label>Table</Label>
-                <Select value={tableId} onChange={(e) => setTableId(e.target.value)}>
-                  <option value="">Select table…</option>
-                  {(tablesQuery.data ?? []).map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} · {t.status} · {t.capacity} seats
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
-            {orderType === 'ROOM_SERVICE' && (
-              <div className="mt-3 space-y-1.5">
-                <Label>Active stay</Label>
-                <Select
-                  value={bookingId}
-                  onChange={(e) => setBookingId(e.target.value)}
-                >
-                  <option value="">Select room…</option>
-                  {(activeStaysQuery.data?.items ?? []).map((b) => (
-                    <option key={b.id} value={b.id}>
-                      Room {b.room.number} · {b.guest.fullName}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
-            {orderType !== 'DINE_IN' && (
-              <div className="mt-3 space-y-1.5">
-                <Label>Guest name</Label>
-                <Input
-                  value={guestName}
-                  onChange={(e) => setGuestName(e.target.value)}
-                  placeholder={orderType === 'ROOM_SERVICE' ? 'From stay' : 'Optional'}
-                  disabled={orderType === 'ROOM_SERVICE'}
-                />
-              </div>
-            )}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {cart.length === 0 ? (
-              <p className="py-8 text-center text-sm text-ink-muted">
-                Tap menu items to add them to the order
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {cart.map((c) => (
-                  <div key={c.menuItemId} className="flex items-center gap-2 rounded-lg border border-border bg-paper p-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{c.name}</div>
-                      <div className="text-xs text-ink-muted">
-                        {formatCurrency(c.price)} × {c.quantity}
-                      </div>
-                    </div>
-                    <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setQty(c.menuItemId, c.quantity - 1)}>
-                      <Minus className="h-3 w-3" />
-                    </Button>
-                    <span className="w-6 text-center text-sm font-semibold">{c.quantity}</span>
-                    <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setQty(c.menuItemId, c.quantity + 1)}>
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                    <span className="w-20 text-right text-sm font-medium">
-                      {formatCurrency(Number(c.price) * c.quantity)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-3 border-t border-border p-4">
-            <div className="flex items-center gap-2">
-              <Label className="w-20 shrink-0">Discount</Label>
-              <Input type="number" step="0.01" min="0" value={discount} onChange={(e) => setDiscount(e.target.value)} />
-            </div>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between text-ink-muted">
-                <span>Gross</span>
-                <span>{formatCurrency(cartTotals.gross)}</span>
-              </div>
-              <div className="flex justify-between text-ink-muted">
-                <span>Tax (est.)</span>
-                <span>{formatCurrency(cartTotals.tax)}</span>
-              </div>
-              <div className="flex justify-between text-base font-semibold text-ink">
-                <span>Total</span>
-                <span>{formatCurrency(cartTotals.total)}</span>
-              </div>
-            </div>
-            <Button
-              className="w-full"
-              disabled={!canSubmit || createOrderMutation.isPending}
-              onClick={() => createOrderMutation.mutate()}
-            >
-              <Send className="h-4 w-4" />
-              {createOrderMutation.isPending ? 'Sending…' : 'Send to kitchen (KOT)'}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Open orders list */}
-      <div>
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-ink-muted">Open orders</h2>
-        {(openOrdersQuery.data?.items ?? []).filter((o) => !['COMPLETED', 'CHARGED_TO_ROOM', 'CANCELLED'].includes(o.status)).length === 0 ? (
-          <EmptyState title="No open orders" />
-        ) : (
-          <div className="grid grid-cols-4 gap-3">
-            {(openOrdersQuery.data?.items ?? [])
-              .filter((o) => !['COMPLETED', 'CHARGED_TO_ROOM', 'CANCELLED'].includes(o.status))
-              .map((o) => (
-                <Card key={o.id} className="cursor-pointer transition hover:border-brass/50" >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-ink-muted">{o.orderNumber}</span>
-                    <StatusBadge status={o.status} />
-                  </div>
-                  <div className="mt-2 text-sm text-ink">
-                    {o.table?.name ?? o.room?.number ? `Room ${o.room?.number}` : o.guestName ?? '—'}
-                  </div>
-                  <div className="mt-1 text-lg font-semibold text-forest-deep">
-                    {formatCurrency(o.grandTotal)}
-                  </div>
-                  <div className="mt-3 flex gap-1">
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => setPayingOrder(o)}>
-                      <CreditCard className="h-3.5 w-3.5" /> Pay
-                    </Button>
-                    {hasPermission('RESTAURANT_ORDER_CREATE') && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-danger"
-                        onClick={async () => {
-                          if (
-                            await confirmDialog({
-                              title: 'Cancel order',
-                              message: `Cancel order ${o.orderNumber}? This cannot be undone.`,
-                              confirmLabel: 'Cancel order',
-                              danger: true,
-                            })
-                          ) {
-                            const res = await api.restaurant.cancelOrder(o.id, 'Cancelled from POS');
-                            if (res.success) {
-                              toast.success('Order cancelled');
-                              void queryClient.invalidateQueries({ queryKey: ['restaurant-orders-open'] });
-                              void queryClient.invalidateQueries({ queryKey: ['restaurant-tables'] });
-                            } else {
-                              toast.error('Cancel failed', res.error.message);
-                            }
-                          }
-                        }}
-                      >
-                        <XCircle className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                </Card>
-              ))}
+        {canManageMenu && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setCategoryDialogOpen(true)}>Add category</Button>
+            <Button onClick={openCreateItem}><Plus className="h-4 w-4" /> Add menu item</Button>
           </div>
         )}
       </div>
 
-      {/* Payment dialog */}
-      <Dialog open={payingOrder !== null} onOpenChange={(o) => !o && setPayingOrder(null)}>
-        {payingOrder && (
-          <PayOrderDialog
-            order={payingOrder}
-            onClose={() => setPayingOrder(null)}
-            onPaid={() => {
-              setPayingOrder(null);
-              void queryClient.invalidateQueries({ queryKey: ['restaurant-orders-open'] });
-              void queryClient.invalidateQueries({ queryKey: ['restaurant-tables'] });
-            }}
-          />
+      {menuQuery.isError && <ErrorState message={(menuQuery.error as Error).message} />}
+      {createdBillNumber && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-forest/20 bg-forest/5 px-4 py-3 text-sm">
+          <span>Bill <strong>{createdBillNumber}</strong> was created and marked paid.</span>
+          <Button size="sm" variant="outline" onClick={() => navigate('/invoices')}>View bills</Button>
+        </div>
+      )}
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <section className="space-y-4">
+          <div className="flex flex-wrap gap-3">
+            <div className="relative min-w-56 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-muted" />
+              <Input
+                className="pl-9"
+                placeholder="Search menu"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
+            <Select className="w-56" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+              <option value="">All categories</option>
+              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </Select>
+          </div>
+
+          {items.length === 0 ? (
+            !menuQuery.isLoading && (
+              <EmptyState
+                title="No menu items"
+                description={canManageMenu ? 'Add a menu item to start billing.' : 'Ask an administrator to add menu items.'}
+                action={canManageMenu ? <Button onClick={openCreateItem}>Add menu item</Button> : undefined}
+              />
+            )
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((item) => (
+                <Card key={item.id} className="flex min-h-36 flex-col justify-between">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <CardTitle>{item.categoryName ?? categories.find((c) => c.id === item.categoryId)?.name}</CardTitle>
+                      <h2 className="mt-1 font-medium text-ink">{item.name}</h2>
+                      {item.description && <p className="mt-1 line-clamp-2 text-xs text-ink-muted">{item.description}</p>}
+                    </div>
+                    {!item.isAvailable && <span className="text-xs text-danger">Unavailable</span>}
+                  </div>
+                  <div className="mt-4 flex items-center justify-between">
+                    <span className="font-semibold text-forest-deep">{formatCurrency(item.price)}</span>
+                    <div className="flex gap-1">
+                      {canManageMenu && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Edit ${item.name}`}
+                            onClick={() => { setEditingItem(item); setItemDialogOpen(true); }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Archive ${item.name}`}
+                            disabled={deleteItemMutation.isPending}
+                            onClick={async () => {
+                              const confirmed = await confirmDialog({
+                                title: 'Archive menu item',
+                                message: `Archive ${item.name}? Existing bills keep their original item details.`,
+                                confirmLabel: 'Archive item',
+                                danger: true,
+                              });
+                              if (confirmed) deleteItemMutation.mutate(item.id);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-danger" />
+                          </Button>
+                        </>
+                      )}
+                      <Button size="sm" disabled={!item.isAvailable || !canCreateBill} onClick={() => addItem(item)}>
+                        <Plus className="h-4 w-4" /> Add
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <aside className="flex flex-col rounded-xl border border-border bg-paper-elevated">
+          <div className="border-b border-border p-4">
+            <h2 className="font-semibold text-forest-deep">Current bill</h2>
+            <p className="mt-1 text-xs text-ink-muted">{selectedCount} item{selectedCount === 1 ? '' : 's'}</p>
+          </div>
+          <div className="space-y-3 border-b border-border p-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="bill-customer-name">Customer name</Label>
+              <Input id="bill-customer-name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Walk-in customer" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bill-customer-mobile">Mobile</Label>
+              <Input id="bill-customer-mobile" value={customerMobile} onChange={(event) => setCustomerMobile(event.target.value)} placeholder="Optional" />
+            </div>
+          </div>
+          <div className="min-h-28 flex-1 space-y-2 overflow-y-auto p-4">
+            {cart.length === 0 ? (
+              <p className="py-6 text-center text-sm text-ink-muted">Add items from the menu to begin.</p>
+            ) : cart.map(({ item, quantity }) => (
+              <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-paper p-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{item.name}</p>
+                  <p className="text-xs text-ink-muted">{formatCurrency(item.price)} each</p>
+                </div>
+                <Button variant="outline" size="icon" className="h-7 w-7" aria-label={`Decrease ${item.name}`} onClick={() => changeQuantity(item.id, quantity - 1)}>
+                  <Minus className="h-3 w-3" />
+                </Button>
+                <span className="w-5 text-center text-sm">{quantity}</span>
+                <Button variant="outline" size="icon" className="h-7 w-7" aria-label={`Increase ${item.name}`} onClick={() => changeQuantity(item.id, quantity + 1)}>
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-border p-4">
+            <p className="mb-3 text-xs text-ink-muted">The server calculates tax and totals from current menu prices. Bills are finalized as paid.</p>
+            <Button
+              className="w-full"
+              disabled={!canCreateBill || cart.length === 0 || createBillMutation.isPending}
+              onClick={() => createBillMutation.mutate()}
+            >
+              {createBillMutation.isPending ? 'Creating bill…' : 'Create bill'}
+            </Button>
+          </div>
+        </aside>
+      </div>
+
+      <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
+        {itemDialogOpen && (
+          <DialogContent
+            title={editingItem ? 'Edit menu item' : 'Add menu item'}
+            description="Menu prices and tax rates are applied by the server when the bill is created."
+          >
+            <ItemForm
+              key={editingItem?.id ?? 'new'}
+              item={editingItem}
+              categories={categories}
+              saving={saveItemMutation.isPending}
+              onCancel={() => setItemDialogOpen(false)}
+              onSubmit={(values) => saveItemMutation.mutate(values)}
+            />
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
+        {categoryDialogOpen && (
+          <DialogContent title="Add menu category" description="Create a category for menu items.">
+            <CategoryForm
+              saving={createCategoryMutation.isPending}
+              onCancel={() => setCategoryDialogOpen(false)}
+              onSubmit={(name) => createCategoryMutation.mutate(name)}
+            />
+          </DialogContent>
         )}
       </Dialog>
     </div>
   );
 }
 
-function PayOrderDialog({
-  order,
-  onClose,
-  onPaid,
+interface ItemFormValues {
+  name: string;
+  sku: string;
+  categoryId: string;
+  price: string;
+  taxRate: string;
+  description: string;
+  isAvailable: boolean;
+}
+
+function ItemForm({
+  item,
+  categories,
+  saving,
+  onCancel,
+  onSubmit,
 }: {
-  order: RestaurantOrder;
-  onClose: () => void;
-  onPaid: () => void;
+  item: MenuItem | null;
+  categories: MenuCategory[];
+  saving: boolean;
+  onCancel: () => void;
+  onSubmit: (values: ItemFormValues) => void;
 }) {
-  const [method, setMethod] = useState('CASH');
-  const [amount, setAmount] = useState(order.grandTotal);
-  const [discount, setDiscount] = useState('0');
-  const [reference, setReference] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const payMutation = useMutation({
-    mutationFn: () =>
-      api.restaurant.payOrder(order.id, {
-        payments: [{ method, amount, reference: reference || undefined }],
-        orderDiscountAmount: discount,
-      }),
-    onSuccess: (inv) => {
-      toast.success('Payment recorded', `Invoice ${inv.invoiceNumber}`);
-      onPaid();
-    },
-    onError: (err: Error) => toast.error('Payment failed', err.message),
-  });
-
-  const paid = Number(amount || '0');
-  const total = Math.max(0, Number(order.grandTotal) - Number(discount || '0'));
+  const [name, setName] = useState(item?.name ?? '');
+  const [sku, setSku] = useState(item?.sku ?? '');
+  const [categoryId, setCategoryId] = useState(item?.categoryId ?? categories[0]?.id ?? '');
+  const [price, setPrice] = useState(item?.price ?? '');
+  const [taxRate, setTaxRate] = useState(item?.taxRate ?? '0');
+  const [description, setDescription] = useState(item?.description ?? '');
+  const [isAvailable, setIsAvailable] = useState(item?.isAvailable ?? true);
 
   return (
-    <DialogContent title={`Pay ${order.orderNumber}`} description="Collect payment and print receipt.">
-      <div className="space-y-4">
-        <div className="rounded-xl border border-border bg-paper p-4">
-          <div className="flex justify-between text-sm">
-            <span className="text-ink-muted">Items</span>
-            <span>{order.items.length}</span>
-          </div>
-          <div className="mt-1 flex justify-between text-sm">
-            <span className="text-ink-muted">Order total</span>
-            <span>{formatCurrency(order.grandTotal)}</span>
-          </div>
-          <div className="mt-1 flex justify-between text-base font-semibold">
-            <span>Amount due</span>
-            <span>{formatCurrency(total)}</span>
-          </div>
+    <form
+      className="space-y-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit({ name, sku, categoryId, price, taxRate, description, isAvailable });
+      }}
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="menu-item-name">Name</Label>
+        <Input id="menu-item-name" required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="menu-item-category">Category</Label>
+          <Select id="menu-item-category" required value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+            <option value="" disabled>Select category</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </Select>
         </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label>Discount</Label>
-            <Input type="number" step="0.01" value={discount} onChange={(e) => setDiscount(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Method</Label>
-            <Select value={method} onChange={(e) => setMethod(e.target.value)}>
-              {['CASH', 'UPI', 'CARD', 'BANK_TRANSFER', 'OTHER'].map((m) => (
-                <option key={m} value={m}>
-                  {m.replace(/_/g, ' ')}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Amount</Label>
-            <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Reference (UPI/card)</Label>
-            <Input value={reference} onChange={(e) => setReference(e.target.value)} />
-          </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="menu-item-sku">SKU</Label>
+          <Input id="menu-item-sku" maxLength={40} value={sku ?? ''} onChange={(event) => setSku(event.target.value)} />
         </div>
-
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={submitting || paid + 0.001 < total}
-            onClick={() => {
-              setSubmitting(true);
-              payMutation.mutate();
-            }}
-          >
-            <CreditCard className="h-4 w-4" />
-            {submitting ? 'Processing…' : 'Record payment'}
-          </Button>
+        <div className="space-y-1.5">
+          <Label htmlFor="menu-item-price">Price</Label>
+          <Input id="menu-item-price" type="number" min="0.01" step="0.01" required value={price} onChange={(event) => setPrice(event.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="menu-item-tax">Tax rate (%)</Label>
+          <Input id="menu-item-tax" type="number" min="0" max="100" step="0.01" value={taxRate} onChange={(event) => setTaxRate(event.target.value)} />
         </div>
       </div>
-    </DialogContent>
+      <div className="space-y-1.5">
+        <Label htmlFor="menu-item-description">Description</Label>
+        <Input id="menu-item-description" maxLength={500} value={description} onChange={(event) => setDescription(event.target.value)} />
+      </div>
+      <label className="flex items-center gap-2 text-sm text-ink">
+        <input type="checkbox" checked={isAvailable} onChange={(event) => setIsAvailable(event.target.checked)} />
+        Available for billing
+      </label>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" disabled={saving || categories.length === 0}>{saving ? 'Saving…' : 'Save item'}</Button>
+      </div>
+    </form>
+  );
+}
+
+function CategoryForm({
+  saving,
+  onCancel,
+  onSubmit,
+}: {
+  saving: boolean;
+  onCancel: () => void;
+  onSubmit: (name: string) => void;
+}) {
+  const [name, setName] = useState('');
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit(name.trim());
+      }}
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="menu-category-name">Category name</Label>
+        <Input id="menu-category-name" required maxLength={60} value={name} onChange={(event) => setName(event.target.value)} />
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Create category'}</Button>
+      </div>
+    </form>
   );
 }

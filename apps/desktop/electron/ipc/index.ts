@@ -20,24 +20,25 @@ function handle(channel: string, fn: Handler): void {
   ipcMain.handle(channel, fn);
 }
 
+/**
+ * Session token held by the main process after a successful login.
+ * The renderer authenticates through this bridge; every passthrough call
+ * carries the Bearer token so server-side RBAC applies uniformly.
+ */
+let sessionToken: string | undefined;
+
 /** Run an authenticated API call, normalizing errors for the renderer. */
 async function callApi<T>(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   path: string,
   init?: RequestInit,
 ): Promise<T | { success: false; error: { code: string; message: string } }> {
-  const token = extractToken(event);
   try {
-    return await apiFetchAuth<T>(path, token, init);
+    return await apiFetchAuth<T>(path, sessionToken, init);
   } catch (err) {
     logger.error({ err, path }, 'API call failed');
     return fail('API_UNAVAILABLE', 'Local service is not reachable. Please restart the application.');
   }
-}
-
-function extractToken(event: IpcMainInvokeEvent): string | undefined {
-  const token = (event.senderFrame ?? {}) as { authToken?: string };
-  return token.authToken;
 }
 
 function body(value: unknown): RequestInit {
@@ -50,21 +51,35 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   handle('app:getPaths', () => getAppPaths());
 
   // ─── Auth ─────────────────────────────────────────────────────
-  handle('auth:login', async (_event, payload: { username: string; password: string }) =>
-    apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }).catch(() =>
-      fail('AUTH_UNAVAILABLE', 'Authentication service unavailable'),
-    ),
-  );
-  handle('auth:pin-login', async (_event, payload: { username: string; pin: string }) =>
-    apiFetch('/api/auth/pin-login', { method: 'POST', body: JSON.stringify(payload) }).catch(() =>
-      fail('AUTH_UNAVAILABLE', 'Authentication service unavailable'),
-    ),
-  );
-  handle('auth:logout', async (event, payload: { userId?: string }) => {
-    const token = extractToken(event);
-    return apiFetchAuth('/api/auth/logout', token, { method: 'POST', body: JSON.stringify(payload ?? {}) }).catch(
-      () => ok({ loggedOut: true }),
-    );
+  handle('auth:login', async (_event, payload: { username: string; password: string }) => {
+    interface LoginBody {
+      success: boolean;
+      data?: { token?: string };
+    }
+    try {
+      const res = await apiFetch<LoginBody>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (res && 'success' in res && res.success) {
+        sessionToken = res.data?.token;
+      }
+      return res;
+    } catch {
+      return fail('AUTH_UNAVAILABLE', 'Authentication service unavailable');
+    }
+  });
+  handle('auth:logout', async (_event, payload: { userId?: string }) => {
+    try {
+      return await apiFetchAuth('/api/auth/logout', sessionToken, {
+        method: 'POST',
+        body: JSON.stringify(payload ?? {}),
+      });
+    } catch {
+      return ok({ loggedOut: true });
+    } finally {
+      sessionToken = undefined;
+    }
   });
 
   // ─── Generic typed passthrough (one channel per domain) ──────
@@ -73,97 +88,45 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
     buildPath: (...args: unknown[]) => string,
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET',
   ) => {
-    handle(channel, async (event, ...args: unknown[]) => callApi(event, buildPath(...args), method === 'GET' ? undefined : body(args[args.length - 1])));
+    handle(channel, async (event, ...args: unknown[]) =>
+      callApi(event, buildPath(...args), method === 'GET' ? undefined : body(args[args.length - 1])),
+    );
   };
 
-  // Guests
-  passthrough('guests:list', () => '/api/guests');
-  passthrough('guests:create', () => '/api/guests', 'POST');
-  passthrough('guests:get', (id: unknown) => `/api/guests/${id}`);
-  passthrough('guests:update', (id: unknown) => `/api/guests/${id}`, 'PUT');
-  passthrough('guests:remove', (id: unknown) => `/api/guests/${id}`, 'DELETE');
-  passthrough('guests:search', (q: unknown) => `/api/guests/search?q=${encodeURIComponent(String(q ?? ''))}`);
-
-  // Rooms
-  passthrough('rooms:list', () => '/api/rooms');
-  passthrough('rooms:grid', () => '/api/rooms/grid');
-  passthrough('rooms:types', () => '/api/rooms/types');
-  passthrough('rooms:createType', () => '/api/rooms/types', 'POST');
-  passthrough('rooms:get', (id: unknown) => `/api/rooms/${id}`);
-  passthrough('rooms:create', () => '/api/rooms', 'POST');
-  passthrough('rooms:update', (id: unknown) => `/api/rooms/${id}`, 'PUT');
-  passthrough('rooms:updateStatus', (id: unknown) => `/api/rooms/${id}/status`, 'PATCH');
-  passthrough('rooms:remove', (id: unknown) => `/api/rooms/${id}`, 'DELETE');
-
-  // Bookings
-  passthrough('bookings:list', (query: unknown) => `/api/bookings${asQueryString(query)}`);
-  passthrough('bookings:get', (id: unknown) => `/api/bookings/${id}`);
-  passthrough('bookings:folio', (id: unknown) => `/api/bookings/${id}/folio`);
-  passthrough('bookings:create', () => '/api/bookings', 'POST');
-  passthrough('bookings:update', (id: unknown) => `/api/bookings/${id}`, 'PUT');
-  passthrough('bookings:cancel', (id: unknown) => `/api/bookings/${id}/cancel`, 'POST');
-  passthrough('bookings:checkIn', (id: unknown) => `/api/bookings/${id}/check-in`, 'POST');
-  passthrough('bookings:checkOut', (id: unknown) => `/api/bookings/${id}/check-out`, 'POST');
-
-  // Restaurant
-  passthrough('restaurant:menu', () => '/api/restaurant/menu');
-  passthrough('restaurant:tables', () => '/api/restaurant/tables');
-  passthrough('restaurant:createCategory', () => '/api/restaurant/menu/categories', 'POST');
-  passthrough('restaurant:createMenuItem', () => '/api/restaurant/menu/items', 'POST');
-  passthrough('restaurant:updateMenuItem', (id: unknown) => `/api/restaurant/menu/items/${id}`, 'PUT');
-  passthrough('restaurant:createTable', () => '/api/restaurant/tables', 'POST');
-  passthrough('restaurant:orders', (query: unknown) => `/api/restaurant/orders${asQueryString(query)}`);
-  passthrough('restaurant:getOrder', (id: unknown) => `/api/restaurant/orders/${id}`);
-  passthrough('restaurant:createOrder', () => '/api/restaurant/orders', 'POST');
-  passthrough('restaurant:addItems', (id: unknown) => `/api/restaurant/orders/${id}/items`, 'POST');
-  passthrough('restaurant:cancelOrder', (id: unknown) => `/api/restaurant/orders/${id}/cancel`, 'POST');
-  passthrough('restaurant:payOrder', (id: unknown) => `/api/restaurant/orders/${id}/pay`, 'POST');
-
-  // Invoices
-  passthrough('invoices:list', (query: unknown) => `/api/invoices${asQueryString(query)}`);
-  passthrough('invoices:get', (id: unknown) => `/api/invoices/${id}`);
-  passthrough('invoices:create', () => '/api/invoices', 'POST');
-  passthrough('invoices:addPayment', (id: unknown) => `/api/invoices/${id}/payments`, 'POST');
-  passthrough('invoices:cancel', (id: unknown) => `/api/invoices/${id}/cancel`, 'POST');
-
-  // Expenses
-  passthrough('expenses:categories', () => '/api/expenses/categories');
-  passthrough('expenses:list', (query: unknown) => `/api/expenses${asQueryString(query)}`);
-  passthrough('expenses:create', () => '/api/expenses', 'POST');
-
-  // Cash sessions
-  passthrough('cash:current', () => '/api/cash-sessions/current');
-  passthrough('cash:open', () => '/api/cash-sessions', 'POST');
-  passthrough('cash:summary', (id: unknown) => `/api/cash-sessions/${id}/summary`);
-  passthrough('cash:close', (id: unknown) => `/api/cash-sessions/${id}/close`, 'POST');
-  passthrough('cash:list', (query: unknown) => `/api/cash-sessions${asQueryString(query)}`);
-
-  // Reports
-  passthrough('reports:salesSummary', (query: unknown) => `/api/reports/sales-summary${asQueryString(query)}`);
-  passthrough('reports:revenueByDay', (query: unknown) => `/api/reports/revenue-by-day${asQueryString(query)}`);
-  passthrough('reports:paymentsByMethod', (query: unknown) => `/api/reports/payments-by-method${asQueryString(query)}`);
-  passthrough('reports:topMenuItems', (query: unknown) => `/api/reports/top-menu-items${asQueryString(query)}`);
-  passthrough('reports:occupancy', (query: unknown) => `/api/reports/occupancy${asQueryString(query)}`);
-  passthrough('reports:outstandingDues', () => '/api/reports/outstanding-dues');
-  passthrough('reports:gstSummary', (query: unknown) => `/api/reports/gst-summary${asQueryString(query)}`);
-  passthrough('reports:guestReport', (query: unknown) => `/api/reports/guest-report${asQueryString(query)}`);
-  passthrough('reports:expenseReport', (query: unknown) => `/api/reports/expense-report${asQueryString(query)}`);
-  passthrough('reports:cancelledInvoices', (query: unknown) => `/api/reports/cancelled-invoices${asQueryString(query)}`);
-
-  // Search, dashboard, settings, users, audit
-  passthrough('search', (q: unknown) => `/api/search?q=${encodeURIComponent(String(q ?? ''))}`);
+  // Dashboard
   passthrough('dashboard:summary', () => '/api/dashboard/summary');
+
+  // Menu
+  passthrough('menu:list', (query: unknown) => `/api/menu${asQueryString(query)}`);
+  passthrough('menu:createCategory', () => '/api/menu/categories', 'POST');
+  passthrough('menu:createItem', () => '/api/menu/items', 'POST');
+  passthrough('menu:updateItem', (id: unknown) => `/api/menu/items/${id}`, 'PUT');
+  passthrough('menu:deleteItem', (id: unknown) => `/api/menu/items/${id}`, 'DELETE');
+
+  // Bills
+  passthrough('bills:list', (query: unknown) => `/api/bills${asQueryString(query)}`);
+  passthrough('bills:get', (id: unknown) => `/api/bills/${id}`);
+  passthrough('bills:create', () => '/api/bills', 'POST');
+  handle('bills:cancel', async (event, id: unknown, payload: { reason: string }) =>
+    callApi(event, `/api/bills/${id}/cancel`, body(payload ?? {})),
+  );
+
+  // Analytics
+  passthrough('analytics:summary', (query: unknown) => `/api/analytics/summary${asQueryString(query)}`);
+
+  // Manager accounts
+  passthrough('users:list', () => '/api/users');
+  passthrough('users:create', () => '/api/users', 'POST');
+  passthrough('users:update', (id: unknown) => `/api/users/${id}`, 'PUT');
+  passthrough('users:remove', (id: unknown) => `/api/users/${id}`, 'DELETE');
+
+  // Hotel & settings
   passthrough('hotel:get', () => '/api/hotel');
   passthrough('hotel:getSettings', () => '/api/settings');
   passthrough('settings:updateHotel', () => '/api/settings/hotel', 'PUT');
   passthrough('settings:update', () => '/api/settings', 'PUT');
-  passthrough('users:list', () => '/api/users');
-  passthrough('users:roles', () => '/api/users/roles');
-  passthrough('users:create', () => '/api/users', 'POST');
-  passthrough('users:update', (id: unknown) => `/api/users/${id}`, 'PUT');
-  passthrough('users:remove', (id: unknown) => `/api/users/${id}`, 'DELETE');
-  passthrough('audit:list', (query: unknown) => `/api/audit-logs${asQueryString(query)}`);
-  passthrough('system:backups', () => '/api/system/backups');
+
+  // System
   passthrough('system:dbIntegrity', () => '/api/system/db/integrity');
 
   // ─── Printing ─────────────────────────────────────────────────
@@ -193,19 +156,6 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
     } catch (err) {
       logger.error({ err }, 'print:invoice failed');
       return fail('PRINT_ERROR', err instanceof Error ? err.message : 'Printing failed');
-    }
-  });
-
-  handle('print:kot', async (_event, payload: { data: unknown; printerName?: string; silent?: boolean; copies?: number }) => {
-    try {
-      await printerService.printKot(
-        payload.data as Parameters<typeof printerService.printKot>[0],
-        payload,
-      );
-      return ok({ printed: true });
-    } catch (err) {
-      logger.error({ err }, 'print:kot failed');
-      return fail('PRINT_ERROR', err instanceof Error ? err.message : 'KOT printing failed');
     }
   });
 
