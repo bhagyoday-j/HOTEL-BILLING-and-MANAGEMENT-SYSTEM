@@ -137,9 +137,13 @@ Permissions are enforced server-side on every protected route; UI gating is a co
 | `npm run dev:server` | Start only the local Express API |
 | `npm run dev:renderer` | Start only the Vite renderer |
 | `npm run dev:electron` | Compile Electron TS and launch the desktop shell |
-| `npm run build` | Build the renderer and package the Electron app |
+| `npm run build` | Compile shared, server, renderer and Electron |
+| `npm run build:shared` | Compile `packages/shared` |
+| `npm run build:server` | Compile the Express server |
 | `npm run build:renderer` | Build the renderer (`vite build`) |
-| `npm run build:electron` | Compile Electron TS and run electron-builder |
+| `npm run build:electron` | Compile the Electron TypeScript |
+| `npm run package` | Build + unpacked app in `release/win-unpacked` |
+| `npm run installer` | Build + Windows installer `release/HotelBillingSetup.exe` |
 | `npm test` | Vitest unit tests (billing engine + print templates) |
 | `npm run typecheck` | Typecheck renderer, server and Electron separately |
 | `npm run lint` | ESLint |
@@ -189,15 +193,29 @@ Health is public.
 | Settings | `GET/PUT /api/settings`, `PUT /api/settings/hotel` | Read authenticated; writes require `SETTINGS_MANAGE` |
 | System | system/backup endpoints | See `apps/server/src/routes/system.ts` and Electron IPC |
 
-## Build / installer
+## Build & installer
+
+Compile everything (shared, server, renderer, Electron):
 
 ```powershell
 npm run build
 ```
 
-`npm run build:electron` runs electron-builder, producing `release/HotelBillingSetup.exe`
-(Windows x64 NSIS). The installer preserves the AppData database, backups and logs across upgrades,
-and does not delete user data on uninstall.
+Generate the Windows installer:
+
+```powershell
+npm run installer
+```
+
+`npm run installer` runs `npm run build` and then electron-builder, producing
+`release/HotelBillingSetup.exe` (Windows x64 NSIS). For a faster unpacked build used during testing,
+run `npm run package` → `release/win-unpacked`.
+
+The installer preserves the AppData database, backups and logs across upgrades, and does not delete
+user data on uninstall. The build is **unsigned**: `electron-builder.yml` sets
+`win.signAndEditExecutable: false` so packaging works without a code-signing certificate (this also
+avoids the symlink-privilege requirement of electron-builder's signing tools). Enable signing and
+set it to `true` once a certificate is available.
 
 ## Documentation
 

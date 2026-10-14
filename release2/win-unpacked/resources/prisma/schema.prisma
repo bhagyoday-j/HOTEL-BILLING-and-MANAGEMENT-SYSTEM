@@ -1,0 +1,622 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth & RBAC ───────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  passwordHash String
+  pinHash      String?
+  fullName     String
+  email        String?
+  phone        String?
+  isActive     Boolean   @default(true)
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime?
+  lastLoginAt  DateTime?
+  roleId       String
+  role         Role      @relation(fields: [roleId], references: [id])
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  invoicesCreated   Invoice[]       @relation("InvoiceCreatedBy")
+  paymentsCreated   Payment[]       @relation("PaymentCreatedBy")
+  expenses          Expense[]
+  cashSessions      CashSession[]
+  auditLogs         AuditLog[]
+  bookingsCreated   Booking[]       @relation("BookingCreatedBy")
+  ordersCreated     RestaurantOrder[] @relation("OrderCreatedBy")
+  notifications     Notification[]
+
+  @@index([username])
+  @@index([roleId])
+  @@index([deletedAt])
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  name        String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  name        String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+}
+
+// ─── Hotel ─────────────────────────────────────────────────────
+
+model Hotel {
+  id        String   @id @default(cuid())
+  name      String
+  logoPath  String?
+  address   String?
+  city      String?
+  state     String?
+  country   String?  @default("India")
+  phone     String?
+  email     String?
+  website   String?
+  gstin     String?
+  pan       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  settings  HotelSetting[]
+}
+
+model HotelSetting {
+  id        String   @id @default(cuid())
+  hotelId   String
+  key       String
+  value     String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hotelId, key])
+  @@index([hotelId])
+}
+
+// ─── Rooms ─────────────────────────────────────────────────────
+
+model RoomType {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  description  String?
+  basePrice    Decimal
+  maxGuests    Int      @default(2)
+  amenities    String? // JSON string array
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+  rooms        Room[]
+
+  @@index([deletedAt])
+}
+
+model Room {
+  id          String     @id @default(cuid())
+  number      String     @unique
+  floor       Int        @default(1)
+  roomTypeId  String
+  roomType    RoomType   @relation(fields: [roomTypeId], references: [id])
+  price       Decimal?
+  capacity    Int?
+  status      String     @default("AVAILABLE") // RoomStatus
+  description String?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime?
+  bookings    Booking[]
+  invoices    Invoice[]
+  orders      RestaurantOrder[]
+
+  @@index([status])
+  @@index([floor])
+  @@index([roomTypeId])
+  @@index([deletedAt])
+}
+
+// ─── Guests ────────────────────────────────────────────────────
+
+model Guest {
+  id          String    @id @default(cuid())
+  fullName    String
+  mobile      String?
+  email       String?
+  address     String?
+  city        String?
+  state       String?
+  country     String?   @default("India")
+  idType      String?
+  idNumber    String?
+  nationality String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  bookings    Booking[]
+  bookingGuests BookingGuest[]
+  invoices    Invoice[]
+
+  @@index([fullName])
+  @@index([mobile])
+  @@index([idNumber])
+  @@index([deletedAt])
+}
+
+// ─── Bookings ──────────────────────────────────────────────────
+
+model Booking {
+  id              String    @id @default(cuid())
+  bookingNumber   String    @unique
+  guestId         String
+  guest           Guest     @relation(fields: [guestId], references: [id])
+  roomId          String
+  room            Room      @relation(fields: [roomId], references: [id])
+  checkInDate     DateTime
+  checkOutDate    DateTime
+  actualCheckIn   DateTime?
+  actualCheckOut  DateTime?
+  adults          Int       @default(1)
+  children        Int       @default(0)
+  roomRate        Decimal
+  discountAmount  Decimal   @default(0)
+  taxAmount       Decimal   @default(0)
+  advancePayment  Decimal   @default(0)
+  specialRequests String?
+  status          String    @default("CONFIRMED") // BookingStatus
+  createdById     String?
+  createdBy       User?     @relation("BookingCreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+  guests          BookingGuest[]
+  invoices        Invoice[]
+  orders          RestaurantOrder[]
+
+  @@index([guestId])
+  @@index([roomId])
+  @@index([status])
+  @@index([checkInDate, checkOutDate])
+  @@index([deletedAt])
+}
+
+model BookingGuest {
+  id        String   @id @default(cuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  guestId   String
+  guest     Guest    @relation(fields: [guestId], references: [id])
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([bookingId, guestId])
+  @@index([bookingId])
+  @@index([guestId])
+}
+
+// ─── Restaurant ────────────────────────────────────────────────
+
+model MenuCategory {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  description String?
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime?
+  items       MenuItem[]
+
+  @@index([sortOrder])
+  @@index([deletedAt])
+}
+
+model MenuItem {
+  id                String       @id @default(cuid())
+  name              String
+  sku               String?      @unique
+  categoryId        String
+  category          MenuCategory @relation(fields: [categoryId], references: [id])
+  price             Decimal
+  taxRate           Decimal      @default(0)
+  description       String?
+  kitchenName       String?
+  isAvailable       Boolean      @default(true)
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  deletedAt         DateTime?
+  orderItems        RestaurantOrderItem[]
+
+  @@index([categoryId])
+  @@index([isAvailable])
+  @@index([deletedAt])
+}
+
+model RestaurantTable {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  capacity  Int      @default(4)
+  status    String   @default("AVAILABLE") // TableStatus
+  floor     Int      @default(1)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  orders    RestaurantOrder[]
+
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model RestaurantOrder {
+  id            String    @id @default(cuid())
+  orderNumber   String    @unique
+  kotNumber     String?
+  orderType     String    @default("DINE_IN") // OrderType
+  status        String    @default("DRAFT") // OrderStatus
+  tableId       String?
+  table         RestaurantTable? @relation(fields: [tableId], references: [id])
+  roomId        String?
+  room          Room?     @relation(fields: [roomId], references: [id])
+  bookingId     String?
+  booking       Booking?  @relation(fields: [bookingId], references: [id])
+  guestName     String?
+  notes         String?
+  subtotal      Decimal   @default(0)
+  discountAmount Decimal  @default(0)
+  taxAmount     Decimal   @default(0)
+  cgstAmount    Decimal   @default(0)
+  sgstAmount    Decimal   @default(0)
+  igstAmount    Decimal   @default(0)
+  grandTotal    Decimal   @default(0)
+  createdById   String?
+  createdBy     User?     @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  items         RestaurantOrderItem[]
+  invoiceItems  InvoiceItem[]
+
+  @@index([status])
+  @@index([tableId])
+  @@index([roomId])
+  @@index([bookingId])
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+model RestaurantOrderItem {
+  id           String          @id @default(cuid())
+  orderId      String
+  order        RestaurantOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId   String?
+  menuItem     MenuItem?       @relation(fields: [menuItemId], references: [id])
+  name         String
+  quantity     Decimal
+  unitPrice    Decimal
+  discountAmount Decimal       @default(0)
+  taxRate      Decimal         @default(0)
+  taxAmount    Decimal         @default(0)
+  lineTotal    Decimal
+  notes        String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([orderId])
+  @@index([menuItemId])
+}
+
+// ─── Billing ───────────────────────────────────────────────────
+
+model Tax {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique // CGST, SGST, IGST, etc.
+  rate        Decimal
+  isActive    Boolean  @default(true)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Discount {
+  id          String    @id @default(cuid())
+  name        String
+  code        String?   @unique
+  type        String    // PERCENT | AMOUNT
+  value       Decimal
+  isActive    Boolean   @default(true)
+  validFrom   DateTime?
+  validTo     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Invoice {
+  id              String    @id @default(cuid())
+  invoiceNumber   String    @unique
+  // Idempotency key sent by the billing UI so a double-submit returns the
+  // existing bill instead of creating a duplicate.
+  clientRequestId String?   @unique
+  status          String    @default("DRAFT") // InvoiceStatus
+  invoiceDate     DateTime  @default(now())
+  guestId         String?
+  guest           Guest?    @relation(fields: [guestId], references: [id])
+  guestName       String?
+  guestMobile     String?
+  roomId          String?
+  room            Room?     @relation(fields: [roomId], references: [id])
+  bookingId       String?
+  booking         Booking?  @relation(fields: [bookingId], references: [id])
+  subtotal        Decimal   @default(0)
+  discountAmount  Decimal   @default(0)
+  taxableAmount   Decimal   @default(0)
+  cgstAmount      Decimal   @default(0)
+  sgstAmount      Decimal   @default(0)
+  igstAmount      Decimal   @default(0)
+  totalTax        Decimal   @default(0)
+  roundingAmount  Decimal   @default(0)
+  grandTotal      Decimal   @default(0)
+  paidAmount      Decimal   @default(0)
+  dueAmount       Decimal   @default(0)
+  notes           String?
+  terms           String?
+  pdfPath         String?
+  createdById     String?
+  createdBy       User?     @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  cancelledAt     DateTime?
+  cancelReason    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+  items           InvoiceItem[]
+  payments        Payment[]
+
+  @@index([status])
+  @@index([invoiceDate])
+  @@index([guestId])
+  @@index([roomId])
+  @@index([bookingId])
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+model InvoiceItem {
+  id              String           @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description     String
+  quantity        Decimal
+  unitPrice       Decimal
+  discountAmount  Decimal          @default(0)
+  taxRate         Decimal          @default(0)
+  cgstAmount      Decimal          @default(0)
+  sgstAmount      Decimal          @default(0)
+  igstAmount      Decimal          @default(0)
+  lineTotal       Decimal
+  sourceType      String? // ROOM | RESTAURANT | SERVICE | OTHER
+  sourceOrderId   String?
+  sourceOrder     RestaurantOrder? @relation(fields: [sourceOrderId], references: [id])
+  sortOrder       Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([invoiceId])
+  @@index([sourceOrderId])
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  paymentNumber String   @unique
+  invoiceId     String?
+  invoice       Invoice? @relation(fields: [invoiceId], references: [id])
+  method        String // PaymentMethod
+  amount        Decimal
+  changeAmount  Decimal  @default(0)
+  reference     String?
+  notes         String?
+  cashSessionId String?
+  cashSession   CashSession? @relation(fields: [cashSessionId], references: [id])
+  createdById   String?
+  createdBy     User?    @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  @@index([invoiceId])
+  @@index([method])
+  @@index([createdAt])
+  @@index([cashSessionId])
+  @@index([deletedAt])
+}
+
+// ─── Expenses & Cash ───────────────────────────────────────────
+
+model ExpenseCategory {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  expenses  Expense[]
+}
+
+model Expense {
+  id            String          @id @default(cuid())
+  categoryId    String
+  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
+  amount        Decimal
+  description   String?
+  paymentMethod String          @default("CASH")
+  expenseDate   DateTime        @default(now())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id])
+  cashSessionId String?
+  cashSession   CashSession?    @relation(fields: [cashSessionId], references: [id])
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  deletedAt     DateTime?
+
+  @@index([categoryId])
+  @@index([expenseDate])
+  @@index([userId])
+  @@index([deletedAt])
+}
+
+model CashSession {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  openedAt       DateTime  @default(now())
+  closedAt       DateTime?
+  openingCash    Decimal
+  expectedCash   Decimal?
+  actualCash     Decimal?
+  difference     Decimal?
+  status         String    @default("OPEN") // OPEN | CLOSED
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  payments       Payment[]
+  expenses       Expense[]
+  dailyClosings  DailyClosing[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([openedAt])
+}
+
+model DailyClosing {
+  id              String       @id @default(cuid())
+  closingDate     DateTime
+  cashSessionId   String?
+  cashSession     CashSession? @relation(fields: [cashSessionId], references: [id])
+  totalRevenue    Decimal      @default(0)
+  roomRevenue     Decimal      @default(0)
+  restaurantRevenue Decimal    @default(0)
+  otherRevenue    Decimal      @default(0)
+  taxCollected    Decimal      @default(0)
+  totalDiscount   Decimal      @default(0)
+  cashCollected   Decimal      @default(0)
+  upiCollected    Decimal      @default(0)
+  cardCollected   Decimal      @default(0)
+  creditAmount    Decimal      @default(0)
+  totalExpenses   Decimal      @default(0)
+  netCollection   Decimal      @default(0)
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([closingDate])
+  @@index([closingDate])
+}
+
+// ─── System ────────────────────────────────────────────────────
+
+model PrinterSetting {
+  id          String   @id @default(cuid())
+  purpose     String   @unique // INVOICE | RECEIPT | KOT
+  printerName String?
+  paperFormat String   @default("A4") // PrintFormat
+  silentPrint Boolean  @default(false)
+  copies      Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model BackupRecord {
+  id           String   @id @default(cuid())
+  fileName     String
+  filePath     String
+  fileSize     Int?
+  triggerType  String // MANUAL | SCHEDULED | PRE_RESTORE | ON_CLOSE
+  status       String   @default("SUCCESS") // SUCCESS | FAILED
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      String    @default("INFO") // INFO | SUCCESS | WARNING | ERROR
+  isRead    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model Sequence {
+  id         String   @id @default(cuid())
+  key        String   // INV, ORD, KOT, PAY, BKG
+  year       Int?
+  prefix     String
+  currentVal Int      @default(0)
+  padLength  Int      @default(6)
+  resetYearly Boolean @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([key, year])
+  @@index([key])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  entityType String?
+  entityId   String?
+  entityRef  String? // human-readable e.g. INV-2026-000123
+  details    String? // JSON
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

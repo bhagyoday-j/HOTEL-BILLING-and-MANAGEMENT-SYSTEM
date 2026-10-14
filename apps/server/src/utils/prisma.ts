@@ -8,7 +8,8 @@ let prisma: PrismaClient | null = null;
 function findProjectRoot(startDir: string): string {
   let current = startDir;
 
-  while (true) {
+  // Walk up until the repo root (identified by prisma/schema.prisma) or the filesystem root.
+  for (;;) {
     if (fs.existsSync(path.join(current, 'prisma', 'schema.prisma'))) {
       return current;
     }

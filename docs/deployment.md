@@ -3,13 +3,23 @@
 ## Build installer
 
 ```powershell
-npm run build
+npm run installer
 ```
 
-`npm run build` builds the renderer and then runs `build:electron`, which compiles the Electron
-TypeScript and invokes electron-builder.
+This runs `npm run build` (compiles `packages/shared`, `apps/server`, the renderer and the Electron
+TypeScript) and then electron-builder.
 
-Artifact: `release/HotelBillingSetup.exe`
+Artifact: `release/HotelBillingSetup.exe` (Windows x64 NSIS)
+
+For a faster unpacked build (no installer) during testing, use `npm run package` →
+`release/win-unpacked`.
+
+### Signing
+
+The build is unsigned. `electron-builder.yml` sets `win.signAndEditExecutable: false`, which lets
+packaging run without a certificate and avoids electron-builder's `winCodeSign` tools (their
+extraction needs symlink privileges — Windows Developer Mode or an elevated shell). Set
+`signAndEditExecutable` to `true` and configure a certificate before shipping a signed build.
 
 ## Installer behavior
 

@@ -33,7 +33,9 @@ export function startServer(): Promise<void> {
   }
 
   const paths = getAppPaths();
-  const serverEntry = path.join(process.resourcesPath ?? path.join(__dirname, '../../../'), 'apps/server/dist/index.js');
+  // The server ships inside the packaged app (resources/app.asar), so resolve the entry
+  // from the app root — not resourcesPath, which would look outside the asar.
+  const serverEntry = path.join(app.getAppPath(), 'apps', 'server', 'dist', 'index.js');
 
   if (!fs.existsSync(serverEntry)) {
     logger.error({ serverEntry }, 'Server entry not found');

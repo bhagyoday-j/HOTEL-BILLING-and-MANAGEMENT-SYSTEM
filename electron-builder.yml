@@ -14,6 +14,14 @@ files:
   - prisma/**/*
   - node_modules/**/*
   - package.json
+  # npm workspaces symlink local packages into node_modules, and the packager skips
+  # symlinked packages — so `require('@hotel-billing/shared')` failed in the installed
+  # app. Copy the built shared package to its resolvable node_modules path.
+  - from: packages/shared
+    to: node_modules/@hotel-billing/shared
+    filter:
+      - dist/**/*
+      - package.json
 
 extraResources:
   - from: prisma
@@ -25,6 +33,11 @@ win:
       arch:
         - x64
   artifactName: HotelBillingSetup.${ext}
+  # No code-signing certificate is configured. Disabling executable signing/editing
+  # lets electron-builder build without extracting its winCodeSign bundle, which
+  # needs symlink privileges (Windows Developer Mode or admin) that may be absent.
+  # Re-enable (or set to true) once a signing certificate is available.
+  signAndEditExecutable: false
 
 nsis:
   oneClick: false

@@ -159,8 +159,8 @@ Validation commands:
 ```powershell
 npm test
 npm run typecheck
-npm run build:renderer
-npm run build:electron
+npm run lint
+npm run build
 ```
 
 `npm run typecheck` checks the renderer, server, and Electron projects using their individual
@@ -204,9 +204,17 @@ Do not run database reset/seed commands against a production or user database.
   `OneNote (Desktop)`).
 - Rendered the real invoice templates through Electron's print pipeline (`printToPDF`) and produced
   valid PDFs for A4, 80mm and 58mm output.
-- Split the renderer build into vendor chunks (`vendor-react`, `vendor-ui`, `vendor-state`, `vendor`);
-  the bundle chunk-size warning is gone and every chunk is under 500 kB. Verified the split build
-  still mounts (login page rendered in headless Chrome).
+- Fixed the lint toolchain: `.eslintrc.cjs` contained JSON (invalid for a CommonJS file) and
+  referenced plugins that were not installed. Converted the config to CommonJS, added the missing
+  `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin` and `eslint-plugin-react-hooks`
+  devDependencies, and fixed the one reported error (`no-constant-condition` in
+  `apps/server/src/utils/prisma.ts`). `npm run lint` now passes with no problems.
+- Added an installer build path: `npm run build` now compiles shared, server, renderer and Electron
+  (it previously skipped the server/shared dists the packager needs), and `npm run installer` runs
+  that build then electron-builder to produce `release/HotelBillingSetup.exe` (`npm run package`
+  produces an unpacked `release/win-unpacked`). Verified end-to-end. `electron-builder.yml` sets
+  `win.signAndEditExecutable: false` so packaging works without a signing certificate and avoids
+  electron-builder's `winCodeSign` symlink-privilege requirement.
 - Browser bill flow: created, inspected, and cancelled temporary bill `INV-2026-000003`;
   cancellation remains in development history by design and is excluded from revenue analytics.
 - Electron dev launch remained running without the previous missing-`main.js` startup error.
