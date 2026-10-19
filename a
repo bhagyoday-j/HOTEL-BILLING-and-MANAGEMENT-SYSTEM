@@ -1,6 +1,0 @@
-We want following feautue in this project
-Admin, or manager can add number of tables(can crud tables ) and each tabel gets a number ,
-Admin or manager can handal all tables bills paralarly like if some hotel have 20 tables then admin or manager 
-can create 20 table now on each table if customer comes then now manager or admin can create separet bills for tables 
-after eating of table 1 coustome completed then admin or manager can create bill for that table 1 customer ,
-and like if table 4 coustomer order some item , admin or manager can add in table 4 coustomer bill

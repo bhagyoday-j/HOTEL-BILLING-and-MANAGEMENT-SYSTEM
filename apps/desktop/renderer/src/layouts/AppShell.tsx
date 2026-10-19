@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
+  LayoutGrid,
   UtensilsCrossed,
   FileText,
   UsersRound,
@@ -21,6 +22,7 @@ import { Toaster } from '@/components/ui/toaster';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/tables', label: 'Tables', icon: LayoutGrid, permission: 'MENU_VIEW' },
   { to: '/restaurant', label: 'Menu & Billing', icon: UtensilsCrossed, permission: 'MENU_VIEW' },
   { to: '/invoices', label: 'Bills', icon: FileText, permission: 'BILL_VIEW' },
   { to: '/customers', label: 'Customers', icon: UsersRound, permission: 'BILL_VIEW' },

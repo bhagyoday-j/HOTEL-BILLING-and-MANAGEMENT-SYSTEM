@@ -91,9 +91,21 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
     buildPath: (...args: unknown[]) => string,
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET',
   ) => {
-    handle(channel, async (event, ...args: unknown[]) =>
-      callApi(event, buildPath(...args), method === 'GET' ? undefined : body(args[args.length - 1])),
-    );
+    handle(channel, async (event, ...args: unknown[]) => {
+      // DELETE routes take their identifiers from the URL and ignore bodies;
+      // POST/PUT bodies must be objects for Express' strict JSON parser.
+      const payload = args[args.length - 1];
+      const init: RequestInit | undefined =
+        method === 'GET' || method === 'DELETE'
+          ? undefined
+          : {
+              method,
+              body: JSON.stringify(
+                typeof payload === 'object' && payload !== null ? payload : {},
+              ),
+            };
+      return callApi(event, buildPath(...args), init);
+    });
   };
 
   // First-run setup (public: used before anyone can sign in)
@@ -109,6 +121,18 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   passthrough('menu:createItem', () => '/api/menu/items', 'POST');
   passthrough('menu:updateItem', (id: unknown) => `/api/menu/items/${id}`, 'PUT');
   passthrough('menu:deleteItem', (id: unknown) => `/api/menu/items/${id}`, 'DELETE');
+
+  // Tables & per-table running bills
+  passthrough('tables:list', (query: unknown) => `/api/tables${asQueryString(query)}`);
+  passthrough('tables:get', (id: unknown) => `/api/tables/${id}`);
+  passthrough('tables:create', () => '/api/tables', 'POST');
+  passthrough('tables:bulkCreate', () => '/api/tables/bulk', 'POST');
+  passthrough('tables:update', (id: unknown) => `/api/tables/${id}`, 'PUT');
+  passthrough('tables:remove', (id: unknown) => `/api/tables/${id}`, 'DELETE');
+  passthrough('tables:addItems', (id: unknown) => `/api/tables/${id}/items`, 'POST');
+  passthrough('tables:removeItem', (id: unknown, itemId: unknown) => `/api/tables/${id}/items/${itemId}`, 'DELETE');
+  passthrough('tables:checkout', (id: unknown) => `/api/tables/${id}/checkout`, 'POST');
+  passthrough('tables:cancel', (id: unknown) => `/api/tables/${id}/cancel`, 'POST');
 
   // Bills
   passthrough('bills:list', (query: unknown) => `/api/bills${asQueryString(query)}`);

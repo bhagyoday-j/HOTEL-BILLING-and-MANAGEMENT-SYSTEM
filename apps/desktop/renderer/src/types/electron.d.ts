@@ -22,6 +22,18 @@ export type ElectronApi = {
     updateItem: (id: string, data: unknown) => Promise<unknown>;
     deleteItem: (id: string) => Promise<unknown>;
   };
+  tables: {
+    list: (query?: Record<string, unknown>) => Promise<unknown>;
+    get: (id: string) => Promise<unknown>;
+    create: (data: unknown) => Promise<unknown>;
+    bulkCreate: (data: unknown) => Promise<unknown>;
+    update: (id: string, data: unknown) => Promise<unknown>;
+    remove: (id: string) => Promise<unknown>;
+    addItems: (id: string, data: unknown) => Promise<unknown>;
+    removeItem: (id: string, itemId: string) => Promise<unknown>;
+    checkout: (id: string, data: unknown) => Promise<unknown>;
+    cancel: (id: string) => Promise<unknown>;
+  };
   bills: {
     list: (query?: Record<string, unknown>) => Promise<unknown>;
     get: (id: string) => Promise<unknown>;

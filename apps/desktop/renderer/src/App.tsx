@@ -4,6 +4,7 @@ import { LoginPage } from './pages/LoginPage';
 import { SetupPage } from './pages/SetupPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { RestaurantPage } from './pages/RestaurantPage';
+import { TablesPage } from './pages/TablesPage';
 import { InvoicesPage } from './pages/InvoicesPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -58,6 +59,7 @@ export function App() {
           <Route path="rooms" element={<PermissionRoute permission="ROOM_VIEW"><ComingSoonPage title="Rooms" phase="Phase 2" /></PermissionRoute>} />
           <Route path="guests" element={<PermissionRoute permission="GUEST_VIEW"><ComingSoonPage title="Guests" phase="Phase 2" /></PermissionRoute>} />
           <Route path="bookings" element={<PermissionRoute permission="BOOKING_VIEW"><ComingSoonPage title="Bookings" phase="Phase 2" /></PermissionRoute>} />
+          <Route path="tables" element={<PermissionRoute permission="MENU_VIEW"><TablesPage /></PermissionRoute>} />
           <Route path="restaurant" element={<PermissionRoute permission="MENU_VIEW"><RestaurantPage /></PermissionRoute>} />
           <Route path="invoices" element={<PermissionRoute permission="BILL_VIEW"><InvoicesPage /></PermissionRoute>} />
           <Route path="customers" element={<PermissionRoute permission="BILL_VIEW"><CustomersPage /></PermissionRoute>} />

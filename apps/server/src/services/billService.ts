@@ -102,7 +102,10 @@ export class BillService {
     const bill = await prisma.invoice.findFirst({
       where: { id, deletedAt: null },
       include: {
-        items: { orderBy: { sortOrder: 'asc' } },
+        items: {
+          orderBy: { sortOrder: 'asc' },
+          include: { sourceOrder: { include: { table: { select: { name: true } } } } },
+        },
         createdBy: { select: { fullName: true, username: true } },
       },
     });
@@ -128,6 +131,9 @@ export class BillService {
       terms: bill.terms,
       cancelledAt: bill.cancelledAt,
       cancelReason: bill.cancelReason,
+      // Table bills snapshot their source order; expose the table for history.
+      tableNumber:
+        bill.items.find((item) => item.sourceOrder?.table)?.sourceOrder?.table?.name ?? null,
       createdBy: bill.createdBy?.fullName ?? null,
       items: bill.items.map((i) => ({
         id: i.id,

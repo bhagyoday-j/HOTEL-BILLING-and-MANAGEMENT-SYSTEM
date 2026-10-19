@@ -33,6 +33,21 @@ function money(value: Decimal): string {
   return value.toFixed(MONEY_DECIMAL_PLACES);
 }
 
+/**
+ * Convert a combined GST rate into the rate fields expected by the billing
+ * engine: IGST when interstate, otherwise a CGST/SGST split. Computed with
+ * Decimal so the split rate itself never suffers binary floating-point drift.
+ */
+export function gstRateSplit(
+  taxRate: string | number | Decimal,
+  useIgst: boolean,
+): { cgstRate?: string; sgstRate?: string; igstRate?: string } {
+  const rate = d(taxRate);
+  if (useIgst) return { igstRate: rate.toString() };
+  const half = rate.div(2).toFixed(4);
+  return { cgstRate: half, sgstRate: half };
+}
+
 function applyDiscount(
   amount: Decimal,
   discountAmount?: string | number | Decimal,

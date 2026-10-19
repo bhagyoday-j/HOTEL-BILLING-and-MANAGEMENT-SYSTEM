@@ -33,6 +33,19 @@ const api = {
     updateItem: (id: string, data: unknown) => ipcRenderer.invoke('menu:updateItem', id, data),
     deleteItem: (id: string) => ipcRenderer.invoke('menu:deleteItem', id),
   },
+  tables: {
+    list: (query?: Record<string, unknown>) => ipcRenderer.invoke('tables:list', query),
+    get: (id: string) => ipcRenderer.invoke('tables:get', id),
+    create: (data: unknown) => ipcRenderer.invoke('tables:create', data),
+    bulkCreate: (data: unknown) => ipcRenderer.invoke('tables:bulkCreate', data),
+    update: (id: string, data: unknown) => ipcRenderer.invoke('tables:update', id, data),
+    remove: (id: string) => ipcRenderer.invoke('tables:remove', id),
+    addItems: (id: string, data: unknown) => ipcRenderer.invoke('tables:addItems', id, data),
+    removeItem: (id: string, itemId: string) =>
+      ipcRenderer.invoke('tables:removeItem', id, itemId),
+    checkout: (id: string, data: unknown) => ipcRenderer.invoke('tables:checkout', id, data),
+    cancel: (id: string) => ipcRenderer.invoke('tables:cancel', id),
+  },
   bills: {
     list: (query?: Record<string, unknown>) => ipcRenderer.invoke('bills:list', query),
     get: (id: string) => ipcRenderer.invoke('bills:get', id),

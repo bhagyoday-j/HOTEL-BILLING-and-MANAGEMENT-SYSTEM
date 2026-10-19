@@ -200,6 +200,9 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
                 <div><span className="text-ink-muted">Status:</span> <StatusBadge status={bill.status} /></div>
                 <div><span className="text-ink-muted">Customer:</span> {bill.customerName ?? 'Walk-in'}</div>
                 <div><span className="text-ink-muted">Mobile:</span> {bill.customerMobile ?? '—'}</div>
+                {bill.tableNumber && (
+                  <div><span className="text-ink-muted">Table:</span> {bill.tableNumber}</div>
+                )}
               </div>
               <Table>
                 <THead>

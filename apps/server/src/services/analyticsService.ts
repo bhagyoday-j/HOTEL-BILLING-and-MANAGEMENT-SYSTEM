@@ -10,6 +10,63 @@ function num(value: unknown): number {
   return Number(value?.toString() ?? '0');
 }
 
+export interface RevenueBucket {
+  period: string;
+  revenue: number;
+  bills: number;
+}
+
+interface BillForRevenue {
+  invoiceDate: Date;
+  grandTotal: string | number | { toString(): string };
+}
+
+/** Chronological YYYY-MM keys for the last `count` months, ending with `today`'s month. */
+export function lastMonthKeys(today: Date, count = 12): string[] {
+  const keys: string[] = [];
+  const cursor = new Date(today.getFullYear(), today.getMonth() - (count - 1), 1);
+  for (let index = 0; index < count; index += 1) {
+    keys.push(monthKey(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return keys;
+}
+
+/** Monthly revenue for a fixed window; months with no sales stay at zero. */
+export function buildMonthlyRevenueSeries(
+  bills: BillForRevenue[],
+  monthKeys: string[],
+): RevenueBucket[] {
+  const buckets = new Map<string, RevenueBucket>(
+    monthKeys.map((period) => [period, { period, revenue: 0, bills: 0 }]),
+  );
+  for (const bill of bills) {
+    const bucket = buckets.get(monthKey(bill.invoiceDate));
+    if (!bucket) continue;
+    bucket.revenue += num(bill.grandTotal);
+    bucket.bills += 1;
+  }
+  return Array.from(buckets.values());
+}
+
+/** Highest-revenue days, highest first; ties go to more bills, then earlier date. */
+export function topSellingDays(bills: BillForRevenue[], limit = 5): RevenueBucket[] {
+  const buckets = new Map<string, RevenueBucket>();
+  for (const bill of bills) {
+    const period = dayKey(bill.invoiceDate);
+    const bucket = buckets.get(period) ?? { period, revenue: 0, bills: 0 };
+    bucket.revenue += num(bill.grandTotal);
+    bucket.bills += 1;
+    buckets.set(period, bucket);
+  }
+  return Array.from(buckets.values())
+    .sort(
+      (a, b) =>
+        b.revenue - a.revenue || b.bills - a.bills || a.period.localeCompare(b.period),
+    )
+    .slice(0, Math.max(0, limit));
+}
+
 function dayKey(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -70,7 +127,9 @@ export class AnalyticsService {
     const today = new Date();
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    const [todayBills, monthBills] = await Promise.all([
+    const monthlyStart = new Date(today.getFullYear(), today.getMonth() - 11, 1);
+
+    const [todayBills, monthBills, monthlyBills] = await Promise.all([
       prisma.invoice.findMany({
         where: {
           deletedAt: null,
@@ -87,7 +146,21 @@ export class AnalyticsService {
         },
         select: { grandTotal: true },
       }),
+      prisma.invoice.findMany({
+        where: {
+          deletedAt: null,
+          status: { notIn: REVENUE_EXCLUDED_STATUSES },
+          invoiceDate: { gte: monthlyStart, lte: endOfDay(today) },
+        },
+        select: { invoiceDate: true, grandTotal: true },
+      }),
     ]);
+
+    const monthlyRevenue = buildMonthlyRevenueSeries(
+      monthlyBills,
+      lastMonthKeys(today, 12),
+    );
+    const bestDays = topSellingDays(bills, 5);
 
     // Sales breakdown over the selected range.
     const seriesMap = new Map<string, { period: string; revenue: number; bills: number }>();
@@ -162,6 +235,11 @@ export class AnalyticsService {
         revenue: monthBills.reduce((s, b) => s + num(b.grandTotal), 0).toFixed(2),
         bills: monthBills.length,
       },
+      /** Fixed rolling 12-month revenue, independent of the selected range. */
+      monthlyRevenue,
+      /** Highest-revenue day in the selected range and the top five such days. */
+      bestDay: bestDays[0] ?? null,
+      bestDays,
       series,
       bestSellers,
       recentBills: bills.slice(0, 10).map((b) => ({

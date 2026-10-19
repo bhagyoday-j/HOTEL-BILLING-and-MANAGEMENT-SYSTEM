@@ -5,6 +5,7 @@ import { authRouter } from './routes/auth';
 import { setupRouter } from './routes/setup';
 import { dashboardRouter } from './routes/dashboard';
 import { menuRouter } from './routes/menu';
+import { tablesRouter } from './routes/tables';
 import { billsRouter } from './routes/bills';
 import { customersRouter } from './routes/customers';
 import { analyticsRouter } from './routes/analytics';
@@ -32,6 +33,7 @@ export function createApp() {
   app.use('/api/setup', setupRouter);
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/menu', menuRouter);
+  app.use('/api/tables', tablesRouter);
   app.use('/api/bills', billsRouter);
   app.use('/api/customers', customersRouter);
   app.use('/api/analytics', analyticsRouter);

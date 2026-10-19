@@ -138,6 +138,60 @@ export interface MenuListResponse {
   items: MenuItem[];
 }
 
+export interface TableOrderItem {
+  id: string;
+  menuItemId?: string | null;
+  name: string;
+  quantity: string;
+  unitPrice: string;
+  taxRate: string;
+  lineTotal: string;
+  notes?: string | null;
+}
+
+export interface TableOpenBill {
+  id: string;
+  orderNumber: string;
+  openedAt: string;
+  createdBy?: string | null;
+  itemCount: number;
+  lineCount: number;
+  subtotal: string;
+  tax: string;
+  total: string;
+  items: TableOrderItem[];
+}
+
+export interface DiningTable {
+  id: string;
+  number: string;
+  capacity: number;
+  floor: number;
+  status: 'AVAILABLE' | 'OCCUPIED' | 'INACTIVE';
+  isActive: boolean;
+  createdAt: string;
+  openBill: TableOpenBill | null;
+}
+
+export interface TableListResponse {
+  items: DiningTable[];
+  summary: { total: number; available: number; occupied: number };
+}
+
+export interface TableInput {
+  number: string;
+  capacity?: number;
+  floor?: number;
+}
+
+export interface BulkTableResult {
+  requested: number;
+  created: string[];
+  skipped: string[];
+  createdCount: number;
+  skippedCount: number;
+}
+
 export interface BillListItem {
   id: string;
   billNumber: string;
@@ -171,6 +225,7 @@ export interface BillDetail {
   terms?: string | null;
   cancelledAt?: string | null;
   cancelReason?: string | null;
+  tableNumber?: string | null;
   createdBy?: string | null;
   items: Array<{
     id: string;
@@ -246,6 +301,9 @@ export interface AnalyticsSummary {
   today: { revenue: string; bills: number };
   month: { revenue: string; bills: number };
   series: Array<{ period: string; revenue: number; bills: number }>;
+  monthlyRevenue: Array<{ period: string; revenue: number; bills: number }>;
+  bestDay: { period: string; revenue: number; bills: number } | null;
+  bestDays: Array<{ period: string; revenue: number; bills: number }>;
   bestSellers: Array<{ name: string; quantity: number; revenue: number }>;
   recentBills: Array<{
     id: string;
@@ -370,6 +428,83 @@ export const api = {
       viaBridge<{ deleted: boolean }>(
         () => bridge()!.menu.deleteItem(id),
         () => http(`/api/menu/items/${id}`, { method: 'DELETE' }),
+      ),
+  },
+
+  tables: {
+    list: (params?: { search?: string; status?: string }) =>
+      viaBridge<TableListResponse>(
+        () => bridge()!.tables.list(params),
+        () => http<TableListResponse>(`/api/tables${qs(params)}`),
+      ),
+    get: (id: string) =>
+      viaBridge<DiningTable>(
+        () => bridge()!.tables.get(id),
+        () => http<DiningTable>(`/api/tables/${id}`),
+      ),
+    create: (data: TableInput) =>
+      viaBridge<DiningTable>(
+        () => bridge()!.tables.create(data),
+        () => http<DiningTable>('/api/tables', { method: 'POST', body: JSON.stringify(data) }),
+      ),
+    bulkCreate: (data: { count: number; capacity?: number; floor?: number }) =>
+      viaBridge<BulkTableResult>(
+        () => bridge()!.tables.bulkCreate(data),
+        () =>
+          http<BulkTableResult>('/api/tables/bulk', {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }),
+      ),
+    update: (id: string, data: Partial<TableInput> & { isActive?: boolean }) =>
+      viaBridge<DiningTable>(
+        () => bridge()!.tables.update(id, data),
+        () =>
+          http<DiningTable>(`/api/tables/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+          }),
+      ),
+    remove: (id: string) =>
+      viaBridge<{ deleted: boolean }>(
+        () => bridge()!.tables.remove(id),
+        () => http(`/api/tables/${id}`, { method: 'DELETE' }),
+      ),
+    addItems: (id: string, items: BillLineInput[]) =>
+      viaBridge<DiningTable>(
+        () => bridge()!.tables.addItems(id, { items }),
+        () =>
+          http<DiningTable>(`/api/tables/${id}/items`, {
+            method: 'POST',
+            body: JSON.stringify({ items }),
+          }),
+      ),
+    removeItem: (id: string, itemId: string) =>
+      viaBridge<DiningTable>(
+        () => bridge()!.tables.removeItem(id, itemId),
+        () => http<DiningTable>(`/api/tables/${id}/items/${itemId}`, { method: 'DELETE' }),
+      ),
+    checkout: (
+      id: string,
+      data: {
+        clientRequestId?: string;
+        customerName?: string;
+        customerMobile?: string;
+        notes?: string;
+      },
+    ) =>
+      viaBridge<BillDetail>(
+        () => bridge()!.tables.checkout(id, data),
+        () =>
+          http<BillDetail>(`/api/tables/${id}/checkout`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }),
+      ),
+    cancel: (id: string) =>
+      viaBridge<DiningTable>(
+        () => bridge()!.tables.cancel(id),
+        () => http<DiningTable>(`/api/tables/${id}/cancel`, { method: 'POST' }),
       ),
   },
 

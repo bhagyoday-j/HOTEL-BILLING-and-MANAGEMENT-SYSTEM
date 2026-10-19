@@ -92,6 +92,25 @@ Prisma CLI and no seeded credentials):
 - A menu item has a category, name, optional SKU/description, price, tax rate and availability.
 - Existing bills store snapshots and must not be rewritten by later menu edits.
 
+### Tables and table bills
+
+- Owner and manager can create, view, update and archive dining tables. Table numbers are unique;
+  archiving a table keeps its number available for reuse.
+- Bulk add creates `T1…Tn` from a single table count. Existing numbers are skipped (archived ones
+  are restored), so entering 20 on a restaurant with T1–T6 adds T7–T20 and leaves the rest intact.
+- Tables are listed in natural numeric order (`T2` before `T10`).
+- Each table has at most one open running bill (an `OPEN` `RestaurantOrder`). Food items are added
+  to that table's order only, with menu price/tax snapshotted when the item is ordered, so two
+  tables never share items or totals.
+- Adding the same item again merges it into the existing line. Individual lines can be removed and
+  an unbilled running bill can be voided; either action frees the table when no items remain.
+- **Generate bill** snapshots the running order into a normal paid `Invoice` (via the shared billing
+  engine), marks the order `BILLED` and frees the table. Repeated submits with the same client
+  request ID return the same bill.
+- A table with an open bill cannot be archived until the bill is generated or voided.
+- The Tables page reuses the existing permissions: `MENU_VIEW` to view, `MENU_MANAGE` for table
+  CRUD, and `BILL_VIEW` / `BILL_CREATE` for running bills and checkout.
+
 ### Bills
 
 - List, search, inspect and cancel bills.
@@ -115,8 +134,9 @@ Prisma CLI and no seeded credentials):
 
 - Dashboard: today’s bill count/revenue and recent bills. Owner financial totals are nullable for
   non-owner roles.
-- Owner-only analytics: date range, revenue/bill totals, average bill, revenue series, best sellers,
-  and recent bills.
+- Owner-only analytics: date range, revenue/bill totals, average bill, revenue series, a fixed
+  last-12-months revenue series, best-selling items, best-selling days (top revenue days in the
+  selected range), and recent bills.
 - Analytics are sales revenue, not profit; item costs are not tracked.
 
 ### Printing and desktop runtime
@@ -146,6 +166,7 @@ Health is public.
 | Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/change-password` | Login/logout; change-password for the signed-in user |
 | Dashboard | `GET /api/dashboard/summary` | Authenticated |
 | Menu | `GET /api/menu`, `POST /api/menu/categories`, `POST /api/menu/items`, `PUT /api/menu/items/:id`, `DELETE /api/menu/items/:id` | `MENU_VIEW` / `MENU_MANAGE` |
+| Tables | `GET /api/tables`, `GET /api/tables/:id`, `POST /api/tables`, `PUT/DELETE /api/tables/:id`, `POST /api/tables/:id/items`, `POST /api/tables/bulk`, `DELETE /api/tables/:id/items/:itemId`, `POST /api/tables/:id/checkout`, `POST /api/tables/:id/cancel` | `MENU_VIEW` / `MENU_MANAGE` / `BILL_VIEW` / `BILL_CREATE` |
 | Bills | `GET /api/bills`, `GET /api/bills/:id`, `POST /api/bills`, `POST /api/bills/:id/cancel` | `BILL_VIEW` / `BILL_CREATE` / `BILL_CANCEL` |
 | Customers | `GET /api/customers`, `GET /api/customers/lookup` | `BILL_VIEW` |
 | Analytics | `GET /api/analytics/summary` | `ANALYTICS_VIEW` (owner) |
@@ -249,6 +270,17 @@ Do not run database reset/seed commands against a production or user database.
   produces an unpacked `release/win-unpacked`). Verified end-to-end. `electron-builder.yml` sets
   `win.signAndEditExecutable: false` so packaging works without a signing certificate and avoids
   electron-builder's `winCodeSign` symlink-privilege requirement.
+- Added Tables & table bills: table CRUD, independent running orders per table, add/remove order
+  items, void, and checkout into a separate paid invoice. Verified live against the dev API with
+  admin and manager accounts: two tables kept separate totals, checking out one left the other's
+  bill untouched, duplicate checkout returned the same bill, occupied tables refused deletion, and
+  both roles completed the full flow. Added bulk table creation (`T1…Tn`, existing numbers
+  skipped) and natural numeric table ordering. Added unit tests for table bill totals/tax split
+  and natural table ordering.
+- Added analytics for monthly revenue (last 12 months) and best-selling days (top revenue days in
+  the selected range), with the best day highlighted on the Analytics page. Revenue excludes
+  cancelled bills. Added unit tests for month-window generation, monthly aggregation and
+  best-day ranking/tie-breaking.
 - Browser bill flow: created, inspected, and cancelled temporary bill `INV-2026-000003`;
   cancellation remains in development history by design and is excluded from revenue analytics.
 - Electron dev launch remained running without the previous missing-`main.js` startup error.
