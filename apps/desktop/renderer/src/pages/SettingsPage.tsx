@@ -10,6 +10,7 @@ import { Card, CardTitle } from '@/components/ui/card';
 import { EmptyState, ErrorState, Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { confirmDialog } from '@/stores/confirmStore';
 import { toast } from '@/stores/toastStore';
+import { useAuthStore } from '@/stores/authStore';
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'] as const;
 const ROUNDING_MODES = [
@@ -419,8 +420,106 @@ export function SettingsPage() {
         </form>
       </Card>
 
+      <AccountSection />
+
       <BackupsSection />
     </div>
+  );
+}
+
+/**
+ * The owner account cannot be edited from the manager-accounts page (that endpoint only
+ * accepts MANAGER accounts), so this is where the signed-in user rotates their password.
+ */
+function AccountSection() {
+  const username = useAuthStore((s) => s.user?.username ?? '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const changePasswordMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.auth.changePassword(currentPassword, newPassword);
+      if (!res.success) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: () => {
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setFormError(null);
+      toast.success('Password changed', 'Use the new password next time you sign in.');
+    },
+    onError: (err: Error) => setFormError(err.message),
+  });
+
+  const submit = (event: React.FormEvent): void => {
+    event.preventDefault();
+    setFormError(null);
+    if (newPassword.length < 8) {
+      setFormError('New password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setFormError('New passwords do not match');
+      return;
+    }
+    changePasswordMutation.mutate();
+  };
+
+  return (
+    <Card className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <CardTitle>Account &amp; password</CardTitle>
+        <span className="text-xs text-ink-muted">Signed in as {username || '—'}</span>
+      </div>
+
+      <form className="grid gap-4 sm:grid-cols-3" onSubmit={submit}>
+        <div className="space-y-1.5">
+          <Label htmlFor="current-password">Current password</Label>
+          <Input
+            id="current-password"
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="new-password">New password</Label>
+          <Input
+            id="new-password"
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm-password">Confirm new password</Label>
+          <Input
+            id="confirm-password"
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+          />
+        </div>
+
+        {formError && (
+          <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger sm:col-span-3">
+            {formError}
+          </div>
+        )}
+
+        <div className="sm:col-span-3">
+          <Button type="submit" disabled={changePasswordMutation.isPending}>
+            {changePasswordMutation.isPending ? 'Changing…' : 'Change password'}
+          </Button>
+        </div>
+      </form>
+    </Card>
   );
 }
 

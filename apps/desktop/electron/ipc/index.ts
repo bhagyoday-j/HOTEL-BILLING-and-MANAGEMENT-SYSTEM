@@ -7,7 +7,7 @@ import { apiFetch, apiFetchAuth, API_BASE } from './apiClient';
 import { printerService } from '../printing/printerService';
 import { backupService } from '../backup/backupService';
 import { startBackupScheduler } from '../backup/backupScheduler';
-import { isServerRunning, startServer, stopServer } from '../server/serverProcess';
+import { hasServerCrashed, isServerRunning, startServer, stopServer } from '../server/serverProcess';
 
 // Handlers receive untyped arg lists; each handler validates its own payload.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -69,6 +69,9 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
       return fail('AUTH_UNAVAILABLE', 'Authentication service unavailable');
     }
   });
+  handle('auth:changePassword', async (event, payload: { currentPassword: string; newPassword: string }) =>
+    callApi(event, '/api/auth/change-password', body(payload ?? {})),
+  );
   handle('auth:logout', async (_event, payload: { userId?: string }) => {
     try {
       return await apiFetchAuth('/api/auth/logout', sessionToken, {
@@ -93,6 +96,10 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
     );
   };
 
+  // First-run setup (public: used before anyone can sign in)
+  passthrough('setup:status', () => '/api/setup/status');
+  passthrough('setup:complete', () => '/api/setup', 'POST');
+
   // Dashboard
   passthrough('dashboard:summary', () => '/api/dashboard/summary');
 
@@ -110,6 +117,10 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   handle('bills:cancel', async (event, id: unknown, payload: { reason: string }) =>
     callApi(event, `/api/bills/${id}/cancel`, body(payload ?? {})),
   );
+
+  // Customers (derived from bills)
+  passthrough('customers:list', (query: unknown) => `/api/customers${asQueryString(query)}`);
+  passthrough('customers:lookup', (query: unknown) => `/api/customers/lookup${asQueryString(query)}`);
 
   // Analytics
   passthrough('analytics:summary', (query: unknown) => `/api/analytics/summary${asQueryString(query)}`);
@@ -242,7 +253,7 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
 
   // ─── Server control ───────────────────────────────────────────
   handle('server:status', () =>
-    ok({ running: isServerRunning(), apiBase: API_BASE, crashed: false }),
+    ok({ running: isServerRunning(), apiBase: API_BASE, crashed: hasServerCrashed() }),
   );
   handle('server:restart', async () => {
     stopServer();

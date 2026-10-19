@@ -189,6 +189,24 @@ export interface BillListResponse {
   pageSize: number;
 }
 
+export interface CustomerSummary {
+  key: string;
+  name?: string | null;
+  mobile?: string | null;
+  visits: number;
+  totalSpent: string;
+  lastBillNumber: string;
+  firstVisit: string;
+  lastVisit: string;
+}
+
+export interface CustomerListResponse {
+  items: CustomerSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface BillLineInput {
   menuItemId: string;
   quantity: string;
@@ -273,6 +291,41 @@ export const api = {
       if (b) return b.auth.logout(userId) as Promise<ApiResponse<{ loggedOut: boolean }>>;
       return http('/api/auth/logout', { method: 'POST', body: JSON.stringify({ userId }) });
     },
+    async changePassword(currentPassword: string, newPassword: string) {
+      const b = bridge();
+      if (b) {
+        return (await b.auth.changePassword(currentPassword, newPassword)) as ApiResponse<{
+          changed: boolean;
+        }>;
+      }
+      return http<{ changed: boolean }>('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+    },
+  },
+
+  setup: {
+    /** Whether this installation still needs first-run setup (no owner account yet). */
+    status: () =>
+      viaBridge<{ required: boolean }>(
+        () => bridge()!.setup.status(),
+        () => http<{ required: boolean }>('/api/setup/status'),
+      ),
+    complete: (data: {
+      hotelName: string;
+      ownerFullName: string;
+      username: string;
+      password: string;
+    }) =>
+      viaBridge<{ username: string; userId: string }>(
+        () => bridge()!.setup.complete(data),
+        () =>
+          http<{ username: string; userId: string }>('/api/setup', {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }),
+      ),
   },
 
   dashboard: {
@@ -352,6 +405,19 @@ export const api = {
             method: 'POST',
             body: JSON.stringify({ reason }),
           }),
+      ),
+  },
+
+  customers: {
+    list: (params?: { search?: string; page?: number; pageSize?: number }) =>
+      viaBridge<CustomerListResponse>(
+        () => bridge()!.customers.list(params),
+        () => http<CustomerListResponse>(`/api/customers${qs(params)}`),
+      ),
+    lookup: (params: { mobile?: string; name?: string }) =>
+      viaBridge<CustomerSummary | null>(
+        () => bridge()!.customers.lookup(params),
+        () => http<CustomerSummary | null>(`/api/customers/lookup${qs(params)}`),
       ),
   },
 

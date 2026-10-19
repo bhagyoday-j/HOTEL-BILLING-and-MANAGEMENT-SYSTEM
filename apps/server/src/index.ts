@@ -2,6 +2,7 @@ import { createApp } from './app';
 import { LOCAL_API_HOST, LOCAL_API_PORT } from '@hotel-billing/shared';
 import { logger } from './utils/logger';
 import { getPrisma, disconnectPrisma } from './utils/prisma';
+import { applyPendingMigrations } from './utils/migrations';
 
 const port = Number(process.env.PORT ?? LOCAL_API_PORT);
 const host = process.env.HOST ?? LOCAL_API_HOST;
@@ -9,6 +10,14 @@ const host = process.env.HOST ?? LOCAL_API_HOST;
 async function start() {
   // Ensure Prisma can connect before accepting requests
   const prisma = getPrisma();
+
+  // The packaged app has no Prisma CLI, so create/upgrade the database schema here.
+  // On an existing database this is a no-op.
+  const applied = await applyPendingMigrations(prisma);
+  if (applied.length > 0) {
+    logger.info({ applied }, 'Database migrations applied');
+  }
+
   await prisma.$queryRaw`SELECT 1`;
 
   const app = createApp();

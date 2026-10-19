@@ -12,6 +12,9 @@ files:
   - apps/server/dist/**/*
   - packages/shared/dist/**/*
   - prisma/**/*
+  # Never ship a developer database (it contains local test data).
+  - '!prisma/**/*.db'
+  - '!prisma/**/*.db-*'
   - node_modules/**/*
   - package.json
   # npm workspaces symlink local packages into node_modules, and the packager skips
@@ -22,10 +25,30 @@ files:
     filter:
       - dist/**/*
       - package.json
+  # `prisma generate` writes the client into node_modules/.prisma, which the
+  # `node_modules/**/*` glob does not match because the directory name starts with a
+  # dot. Without it the packaged server died on startup with
+  # "Cannot find module '.prisma/client/default'".
+  - from: node_modules/.prisma
+    to: node_modules/.prisma
+    filter:
+      - '**/*'
+      - '!**/*.tmp*'
+
+# Native binaries cannot be loaded from inside an asar archive: Prisma's query engine
+# and argon2's prebuilt addon must exist as real files on disk.
+asarUnpack:
+  - node_modules/.prisma/**
+  - node_modules/argon2/**
 
 extraResources:
+  # Migrations let the packaged server create or upgrade the AppData database on first
+  # run. Only the migrations and schema are shipped — not any local dev database.
   - from: prisma
     to: prisma
+    filter:
+      - migrations/**/*
+      - schema.prisma
 
 win:
   target:

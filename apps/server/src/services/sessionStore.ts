@@ -55,6 +55,16 @@ class SessionStore {
     }
   }
 
+  /**
+   * Drop every session of a user except the one making the change — used after a
+   * password change so the person who changed it stays signed in on this machine.
+   */
+  revokeAllExcept(userId: string, keepToken: string | undefined): void {
+    for (const [token, rec] of this.sessions) {
+      if (rec.userId === userId && token !== keepToken) this.sessions.delete(token);
+    }
+  }
+
   /** Drop expired entries; called opportunistically on each auth check. */
   sweep(): void {
     const now = Date.now();

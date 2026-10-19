@@ -16,6 +16,12 @@ const api = {
     login: (username: string, password: string) =>
       ipcRenderer.invoke('auth:login', { username, password }),
     logout: (userId?: string) => ipcRenderer.invoke('auth:logout', { userId }),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      ipcRenderer.invoke('auth:changePassword', { currentPassword, newPassword }),
+  },
+  setup: {
+    status: () => ipcRenderer.invoke('setup:status'),
+    complete: (data: unknown) => ipcRenderer.invoke('setup:complete', data),
   },
   dashboard: {
     summary: () => ipcRenderer.invoke('dashboard:summary'),
@@ -32,6 +38,10 @@ const api = {
     get: (id: string) => ipcRenderer.invoke('bills:get', id),
     create: (data: unknown) => ipcRenderer.invoke('bills:create', data),
     cancel: (id: string, reason: string) => ipcRenderer.invoke('bills:cancel', id, { reason }),
+  },
+  customers: {
+    list: (query?: Record<string, unknown>) => ipcRenderer.invoke('customers:list', query),
+    lookup: (query?: Record<string, unknown>) => ipcRenderer.invoke('customers:lookup', query),
   },
   analytics: {
     summary: (query?: Record<string, unknown>) => ipcRenderer.invoke('analytics:summary', query),

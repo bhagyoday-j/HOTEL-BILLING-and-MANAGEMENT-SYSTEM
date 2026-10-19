@@ -13,7 +13,7 @@ import { EmptyState, ErrorState } from '@/components/ui/table';
 import { confirmDialog } from '@/stores/confirmStore';
 import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
-import { formatCurrency } from '@/utils/cn';
+import { cn, formatCurrency } from '@/utils/cn';
 
 interface CartLine {
   item: MenuItem;
@@ -112,11 +112,33 @@ export function RestaurantPage() {
       setCreatedBillNumber(bill.billNumber);
       toast.success('Bill created', bill.billNumber);
       void queryClient.invalidateQueries({ queryKey: ['bills'] });
+      void queryClient.invalidateQueries({ queryKey: ['customers'] });
+      void queryClient.invalidateQueries({ queryKey: ['customer-lookup'] });
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       void queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
     },
     onError: (err: Error) => toast.error('Bill could not be created', err.message),
   });
+
+  // Returning-customer lookup: match on mobile when it looks complete, else on a
+  // typed name. Shows how many times this customer has visited before.
+  const lookupMobile = customerMobile.trim();
+  const lookupName = customerName.trim();
+  const lookupEnabled =
+    lookupMobile.replace(/\D/g, '').length >= 7 || (lookupMobile === '' && lookupName.length >= 3);
+  const customerLookupQuery = useQuery({
+    queryKey: ['customer-lookup', lookupMobile, lookupName],
+    queryFn: async () => {
+      const res = await api.customers.lookup({
+        mobile: lookupMobile || undefined,
+        name: lookupMobile ? undefined : lookupName || undefined,
+      });
+      if (!res.success) throw new Error(res.error.message);
+      return res.data;
+    },
+    enabled: lookupEnabled,
+  });
+  const knownCustomer = customerLookupQuery.data ?? null;
 
   const items = menuQuery.data?.items ?? [];
   const categories = menuQuery.data?.categories ?? [];
@@ -265,6 +287,33 @@ export function RestaurantPage() {
               <Label htmlFor="bill-customer-mobile">Mobile</Label>
               <Input id="bill-customer-mobile" value={customerMobile} onChange={(event) => setCustomerMobile(event.target.value)} placeholder="Optional" />
             </div>
+            {lookupEnabled && (
+              <div
+                className={cn(
+                  'rounded-lg border px-3 py-2 text-xs',
+                  knownCustomer
+                    ? 'border-forest/25 bg-forest/5 text-forest-deep'
+                    : 'border-border bg-paper text-ink-muted',
+                )}
+              >
+                {customerLookupQuery.isFetching ? (
+                  'Checking customer…'
+                ) : knownCustomer ? (
+                  <>
+                    <span className="font-medium">
+                      Returning customer — visited {knownCustomer.visits}{' '}
+                      {knownCustomer.visits === 1 ? 'time' : 'times'}
+                    </span>
+                    <span className="mt-0.5 block">
+                      Last visit {new Date(knownCustomer.lastVisit).toLocaleDateString('en-IN')} ·{' '}
+                      {formatCurrency(knownCustomer.totalSpent)} spent
+                    </span>
+                  </>
+                ) : (
+                  'New customer — this will be their first visit.'
+                )}
+              </div>
+            )}
           </div>
           <div className="min-h-28 flex-1 space-y-2 overflow-y-auto p-4">
             {cart.length === 0 ? (

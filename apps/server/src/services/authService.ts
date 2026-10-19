@@ -74,6 +74,46 @@ export class AuthService {
     return { user: sessionUser, token: session.token };
   }
 
+  /**
+   * Self-service password change for the signed-in user (any role). The current
+   * password must be supplied, and every other session for that account is dropped.
+   */
+  async changePassword(
+    userId: string,
+    currentToken: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const prisma = getPrisma();
+    const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+    if (!user) {
+      throw new AppError('UNAUTHENTICATED', 'Account not found', 401);
+    }
+
+    const valid = await argon2.verify(user.passwordHash, currentPassword);
+    if (!valid) {
+      throw new AppError('INVALID_CREDENTIALS', 'Current password is incorrect', 401);
+    }
+    if (currentPassword === newPassword) {
+      throw new AppError('PASSWORD_UNCHANGED', 'Choose a password you have not used before', 400);
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await argon2.hash(newPassword) },
+    });
+
+    sessionStore.revokeAllExcept(user.id, currentToken);
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'PASSWORD_CHANGE',
+      entityType: 'User',
+      entityId: user.id,
+      entityRef: user.username,
+    });
+  }
+
   async logout(userId?: string, token?: string): Promise<void> {
     if (token) sessionStore.revoke(token);
     if (userId) {

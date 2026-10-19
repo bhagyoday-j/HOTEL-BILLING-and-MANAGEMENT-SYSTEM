@@ -12,14 +12,27 @@ export interface AppPaths {
   invoices: string;
 }
 
-export function getAppPaths(): AppPaths {
-  // In development Electron may not be ready; fall back to cwd-based path for tooling
-  const userData =
-    app && typeof app.isReady === 'function' && app.isReady()
-      ? app.getPath('userData')
-      : path.join(process.cwd(), '.appdata', APP_NAME.replace(/\s+/g, ''));
+/**
+ * Resolve the AppData root from `appData` + APP_NAME rather than
+ * `app.getPath('userData')`.
+ *
+ * This module is loaded through the logger while Electron is still starting up, and at
+ * that point `userData` still reflects the package name (`hotel-billing`). The previous
+ * readiness check replaced that with a `<cwd>/.appdata` fallback, which put the log file
+ * next to the executable — a location that is not always writable (an install under
+ * Program Files), failing startup before any window could be created.
+ */
+function resolveRoot(): string {
+  try {
+    return path.join(app.getPath('appData'), APP_NAME);
+  } catch {
+    const appData = process.env.APPDATA ?? process.env.HOME ?? process.cwd();
+    return path.join(appData, APP_NAME);
+  }
+}
 
-  const root = userData;
+export function getAppPaths(): AppPaths {
+  const root = resolveRoot();
   const data = path.join(root, 'data');
   return {
     root,

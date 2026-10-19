@@ -110,7 +110,8 @@ entry: `apps/desktop/electron/dist/main.js`).
 
 ## Development credentials
 
-These are development-only seed accounts. **Never use them in production.**
+These are development-only seed accounts from `npm run db:seed`. **Never use them in production** —
+the installed app creates its own owner account through first-run setup instead.
 
 | Username | Password | Role |
 |----------|----------|------|
@@ -163,6 +164,18 @@ Permissions are enforced server-side on every protected route; UI gating is a co
 The Electron runtime also manages `data/`, `backups/`, `logs/` and `invoices/` under AppData.
 Never store the production database inside the source tree.
 
+### First run (installed app)
+
+The packaged app has no database on a new machine, so it provisions one itself:
+
+1. The bundled server applies the migrations in `prisma/migrations` to the AppData database on
+   startup (no Prisma CLI required, and a no-op once they are applied).
+2. If the installation has no owner account, the app shows a one-time setup screen where the owner
+   enters the hotel name and chooses their own username and password. No default password is shipped.
+
+Sign in afterwards with the owner account created there. The owner can change that password any time
+in **Settings → Account & password** (manager passwords are reset from **Manager accounts**).
+
 Prisma commands:
 
 ```bash
@@ -183,7 +196,8 @@ Health is public.
 | Group | Routes | Access |
 |-------|--------|--------|
 | Health | `GET /api/health` | Public |
-| Auth | `POST /api/auth/login`, `POST /api/auth/logout` | Login/logout |
+| Setup | `GET /api/setup/status`, `POST /api/setup` | Public, but `POST` only while no owner account exists |
+| Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/change-password` | Login/logout; change-password for the signed-in user |
 | Dashboard | `GET /api/dashboard/summary` | Authenticated |
 | Menu | `GET /api/menu`, `POST /api/menu/categories`, `POST /api/menu/items`, `PUT /api/menu/items/:id`, `DELETE /api/menu/items/:id` | `MENU_VIEW` / `MENU_MANAGE` |
 | Bills | `GET /api/bills`, `GET /api/bills/:id`, `POST /api/bills`, `POST /api/bills/:id/cancel` | `BILL_VIEW` / `BILL_CREATE` / `BILL_CANCEL` |

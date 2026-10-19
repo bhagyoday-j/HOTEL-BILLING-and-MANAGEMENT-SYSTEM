@@ -6,6 +6,11 @@ export type ElectronApi = {
   auth: {
     login: (username: string, password: string) => Promise<unknown>;
     logout: (userId?: string) => Promise<unknown>;
+    changePassword: (currentPassword: string, newPassword: string) => Promise<unknown>;
+  };
+  setup: {
+    status: () => Promise<unknown>;
+    complete: (data: unknown) => Promise<unknown>;
   };
   dashboard: {
     summary: () => Promise<unknown>;
@@ -22,6 +27,10 @@ export type ElectronApi = {
     get: (id: string) => Promise<unknown>;
     create: (data: unknown) => Promise<unknown>;
     cancel: (id: string, reason: string) => Promise<unknown>;
+  };
+  customers: {
+    list: (query?: Record<string, unknown>) => Promise<unknown>;
+    lookup: (query?: Record<string, unknown>) => Promise<unknown>;
   };
   analytics: {
     summary: (query?: Record<string, unknown>) => Promise<unknown>;

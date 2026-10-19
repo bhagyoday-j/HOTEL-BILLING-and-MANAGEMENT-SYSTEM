@@ -2,8 +2,9 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
+import { useSetupStatus } from '@/hooks/useSetupStatus';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +21,8 @@ type FormValues = z.infer<typeof schema>;
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const setupStatus = useSetupStatus();
   const user = useAuthStore((s) => s.user);
   const lastUsername = useAuthStore((s) => s.lastUsername);
   const setSession = useAuthStore((s) => s.setSession);
@@ -35,6 +38,11 @@ export function LoginPage() {
   useEffect(() => {
     if (user) navigate('/', { replace: true });
   }, [user, navigate]);
+
+  // A fresh installation has no accounts: send the user to first-run setup.
+  if (setupStatus.required) {
+    return <Navigate to="/setup" replace />;
+  }
 
   const onSubmit = form.handleSubmit(async (values) => {
     setError(null);
@@ -109,13 +117,25 @@ export function LoginPage() {
               </div>
             )}
 
+            {(location.state as { setupComplete?: boolean } | null)?.setupComplete && (
+              <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+                Setup complete. Sign in with the owner account you just created.
+              </div>
+            )}
+
+            {setupStatus.starting && (
+              <div className="rounded-md border border-border bg-paper px-3 py-2 text-sm text-ink-muted">
+                Starting the local service…
+              </div>
+            )}
+
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
 
           <p className="mt-6 text-center text-xs text-ink-muted">
-            Development credentials are listed in README. Change them before production.
+            Offline local sign-in. Contact the owner account holder for access.
           </p>
         </div>
       </div>
