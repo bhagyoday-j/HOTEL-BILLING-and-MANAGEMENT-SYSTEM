@@ -31,6 +31,7 @@ export type ElectronApi = {
     remove: (id: string) => Promise<unknown>;
     addItems: (id: string, data: unknown) => Promise<unknown>;
     removeItem: (id: string, itemId: string) => Promise<unknown>;
+    setItemQuantity: (id: string, itemId: string, quantity: number) => Promise<unknown>;
     checkout: (id: string, data: unknown) => Promise<unknown>;
     cancel: (id: string) => Promise<unknown>;
   };

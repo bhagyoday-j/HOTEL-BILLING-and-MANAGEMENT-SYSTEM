@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { compareTableNumbers, computeOrderTotals } from './tableService';
+import { compareTableNumbers, computeOrderTotals, lineAmount } from './tableService';
 
 function line(quantity: string, unitPrice: string, taxRate: string) {
   return { quantity, unitPrice, taxRate };
 }
+
+describe('lineAmount', () => {
+  it('multiplies quantity by the snapshotted unit price with Decimal rounding', () => {
+    expect(lineAmount(3, '60.00')).toBe('180.00');
+    expect(lineAmount('2', '10.555')).toBe('21.11');
+    expect(lineAmount(0, '60.00')).toBe('0.00');
+  });
+});
 
 describe('compareTableNumbers', () => {
   it('orders T1…T20 naturally instead of lexicographically', () => {

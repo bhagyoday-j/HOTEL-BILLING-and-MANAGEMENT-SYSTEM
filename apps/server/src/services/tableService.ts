@@ -137,7 +137,11 @@ function validateQuantity(value: string): number {
   return quantity;
 }
 
-function lineAmount(quantity: string | number | Decimal, unitPrice: string | Decimal): string {
+/** Pre-tax line total, computed with Decimal to avoid float drift. */
+export function lineAmount(
+  quantity: string | number | Decimal,
+  unitPrice: string | Decimal,
+): string {
   return new Decimal(quantity.toString()).mul(unitPrice.toString()).toFixed(2);
 }
 
@@ -485,7 +489,7 @@ export class TableService {
             where: { id: existingLine.id },
             data: {
               quantity: newQuantity.toString(),
-              lineTotal: newQuantity.mul(existingLine.unitPrice.toString()).toFixed(2),
+              lineTotal: lineAmount(newQuantity, existingLine.unitPrice),
             },
           });
         } else {
@@ -542,18 +546,7 @@ export class TableService {
       });
       if (!item) throw new AppError('ORDER_ITEM_NOT_FOUND', 'Order item not found', 404);
 
-      await tx.restaurantOrderItem.delete({ where: { id: itemId } });
-
-      const remaining = await tx.restaurantOrderItem.count({ where: { orderId: order.id } });
-      if (remaining === 0) {
-        await tx.restaurantOrder.delete({ where: { id: order.id } });
-        await tx.restaurantTable.update({
-          where: { id: tableId },
-          data: { status: TABLE_AVAILABLE },
-        });
-      } else {
-        await this.recalculateOrder(tx, order.id, igst);
-      }
+      await this.deleteOrderItem(tx, tableId, order.id, itemId, igst);
     });
 
     await this.audit.log({
@@ -562,6 +555,74 @@ export class TableService {
       entityType: 'RestaurantOrderItem',
       entityId: itemId,
       entityRef: tableId,
+    });
+    return this.get(tableId);
+  }
+
+  /**
+   * Set an item's quantity on a table's running bill. Increasing or reducing
+   * the quantity keeps the original price/tax snapshot; setting it to 0
+   * removes the line and frees the table when it was the last item.
+   */
+  async setOrderItemQuantity(
+    tableId: string,
+    itemId: string,
+    quantity: number,
+    userId: string,
+  ) {
+    if (!Number.isInteger(quantity) || quantity < 0 || quantity > 999) {
+      throw new AppError(
+        'INVALID_QUANTITY',
+        'Quantity must be a whole number between 0 and 999',
+        400,
+      );
+    }
+
+    const prisma = getPrisma();
+    const igst = await this.useIgst();
+
+    let updatedQuantity = quantity;
+    await prisma.$transaction(async (tx) => {
+      const table = await tx.restaurantTable.findFirst({
+        where: { id: tableId, deletedAt: null },
+      });
+      if (!table) throw new AppError('TABLE_NOT_FOUND', 'Table not found', 404);
+
+      const order = await tx.restaurantOrder.findFirst({
+        where: { tableId, status: ORDER_OPEN, deletedAt: null },
+      });
+      if (!order) {
+        throw new AppError('NO_OPEN_BILL', 'This table has no open bill', 409);
+      }
+
+      const item = await tx.restaurantOrderItem.findFirst({
+        where: { id: itemId, orderId: order.id },
+      });
+      if (!item) throw new AppError('ORDER_ITEM_NOT_FOUND', 'Order item not found', 404);
+
+      if (quantity === 0) {
+        await this.deleteOrderItem(tx, tableId, order.id, itemId, igst);
+        return;
+      }
+
+      updatedQuantity = quantity;
+      await tx.restaurantOrderItem.update({
+        where: { id: itemId },
+        data: {
+          quantity: String(quantity),
+          lineTotal: lineAmount(quantity, item.unitPrice),
+        },
+      });
+      await this.recalculateOrder(tx, order.id, igst);
+    });
+
+    await this.audit.log({
+      userId,
+      action: 'TABLE_ORDER_ITEM_UPDATE',
+      entityType: 'RestaurantOrderItem',
+      entityId: itemId,
+      entityRef: tableId,
+      details: { quantity: updatedQuantity },
     });
     return this.get(tableId);
   }
@@ -709,6 +770,28 @@ export class TableService {
       entityRef: tableId,
     });
     return this.bills.get(invoiceId);
+  }
+
+  /** Delete one line and free the table/order when nothing remains. */
+  private async deleteOrderItem(
+    tx: Prisma.TransactionClient,
+    tableId: string,
+    orderId: string,
+    itemId: string,
+    useIgst: boolean,
+  ): Promise<void> {
+    await tx.restaurantOrderItem.delete({ where: { id: itemId } });
+
+    const remaining = await tx.restaurantOrderItem.count({ where: { orderId } });
+    if (remaining === 0) {
+      await tx.restaurantOrder.delete({ where: { id: orderId } });
+      await tx.restaurantTable.update({
+        where: { id: tableId },
+        data: { status: TABLE_AVAILABLE },
+      });
+    } else {
+      await this.recalculateOrder(tx, orderId, useIgst);
+    }
   }
 
   private async recalculateOrder(

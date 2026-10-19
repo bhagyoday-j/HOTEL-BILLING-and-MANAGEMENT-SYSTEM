@@ -12,8 +12,8 @@ runs a local Express API against a SQLite database. Online sync is out of scope.
   details/availability; archive items with soft delete.
 - **Tables & table billing** — create tables one at a time or bulk-create T1…Tn from a table
   count. Each table keeps its own running bill, so items and totals never mix between tables.
-  Generate a separate paid bill per table when the customer finishes dining, or void the running
-  bill and free the table.
+  Adjust item quantities with + / − controls, generate a separate paid bill per table when the
+  customer finishes dining, or void the running bill and free the table.
 - **Customer billing** — create a bill from selected menu items. The server re-reads current prices
   and tax rates, calculates totals with the shared billing engine, and finalizes the bill as
   `PAID`. A client request ID makes duplicate submits idempotent.
@@ -205,7 +205,7 @@ Health is public.
 | Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/change-password` | Login/logout; change-password for the signed-in user |
 | Dashboard | `GET /api/dashboard/summary` | Authenticated |
 | Menu | `GET /api/menu`, `POST /api/menu/categories`, `POST /api/menu/items`, `PUT /api/menu/items/:id`, `DELETE /api/menu/items/:id` | `MENU_VIEW` / `MENU_MANAGE` |
-| Tables | `GET /api/tables`, `GET /api/tables/:id`, `POST /api/tables`, `PUT/DELETE /api/tables/:id`, `POST /api/tables/bulk`, `POST /api/tables/:id/items`, `DELETE /api/tables/:id/items/:itemId`, `POST /api/tables/:id/checkout`, `POST /api/tables/:id/cancel` | `MENU_VIEW` / `MENU_MANAGE` / `BILL_VIEW` / `BILL_CREATE` |
+| Tables | `GET /api/tables`, `GET /api/tables/:id`, `POST /api/tables`, `PUT/DELETE /api/tables/:id`, `POST /api/tables/bulk`, `POST /api/tables/:id/items`, `PUT/DELETE /api/tables/:id/items/:itemId`, `POST /api/tables/:id/checkout`, `POST /api/tables/:id/cancel` | `MENU_VIEW` / `MENU_MANAGE` / `BILL_VIEW` / `BILL_CREATE` |
 | Bills | `GET /api/bills`, `GET /api/bills/:id`, `POST /api/bills`, `POST /api/bills/:id/cancel` | `BILL_VIEW` / `BILL_CREATE` / `BILL_CANCEL` |
 | Analytics | `GET /api/analytics/summary` | `ANALYTICS_VIEW` (owner) |
 | Managers | `GET /api/users`, `POST /api/users`, `PUT /api/users/:id`, `DELETE /api/users/:id` | `MANAGER_MANAGE` (owner) |

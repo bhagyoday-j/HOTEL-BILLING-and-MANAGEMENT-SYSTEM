@@ -102,8 +102,10 @@ Prisma CLI and no seeded credentials):
 - Each table has at most one open running bill (an `OPEN` `RestaurantOrder`). Food items are added
   to that table's order only, with menu price/tax snapshotted when the item is ordered, so two
   tables never share items or totals.
-- Adding the same item again merges it into the existing line. Individual lines can be removed and
-  an unbilled running bill can be voided; either action frees the table when no items remain.
+- Adding the same item again merges it into the existing line. Each line has **+ / −** quantity
+  controls that update the line and recalculate totals server-side; decrementing to zero removes
+  the line. Individual lines can also be removed, and an unbilled running bill can be voided; any
+  of these frees the table when no items remain.
 - **Generate bill** snapshots the running order into a normal paid `Invoice` (via the shared billing
   engine), marks the order `BILLED` and frees the table. Repeated submits with the same client
   request ID return the same bill.
@@ -166,7 +168,7 @@ Health is public.
 | Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/change-password` | Login/logout; change-password for the signed-in user |
 | Dashboard | `GET /api/dashboard/summary` | Authenticated |
 | Menu | `GET /api/menu`, `POST /api/menu/categories`, `POST /api/menu/items`, `PUT /api/menu/items/:id`, `DELETE /api/menu/items/:id` | `MENU_VIEW` / `MENU_MANAGE` |
-| Tables | `GET /api/tables`, `GET /api/tables/:id`, `POST /api/tables`, `PUT/DELETE /api/tables/:id`, `POST /api/tables/:id/items`, `POST /api/tables/bulk`, `DELETE /api/tables/:id/items/:itemId`, `POST /api/tables/:id/checkout`, `POST /api/tables/:id/cancel` | `MENU_VIEW` / `MENU_MANAGE` / `BILL_VIEW` / `BILL_CREATE` |
+| Tables | `GET /api/tables`, `GET /api/tables/:id`, `POST /api/tables`, `PUT/DELETE /api/tables/:id`, `POST /api/tables/:id/items`, `POST /api/tables/bulk`, `PUT/DELETE /api/tables/:id/items/:itemId`, `POST /api/tables/:id/checkout`, `POST /api/tables/:id/cancel` | `MENU_VIEW` / `MENU_MANAGE` / `BILL_VIEW` / `BILL_CREATE` |
 | Bills | `GET /api/bills`, `GET /api/bills/:id`, `POST /api/bills`, `POST /api/bills/:id/cancel` | `BILL_VIEW` / `BILL_CREATE` / `BILL_CANCEL` |
 | Customers | `GET /api/customers`, `GET /api/customers/lookup` | `BILL_VIEW` |
 | Analytics | `GET /api/analytics/summary` | `ANALYTICS_VIEW` (owner) |
@@ -277,6 +279,9 @@ Do not run database reset/seed commands against a production or user database.
   both roles completed the full flow. Added bulk table creation (`T1…Tn`, existing numbers
   skipped) and natural numeric table ordering. Added unit tests for table bill totals/tax split
   and natural table ordering.
+- Added +/- quantity controls for items on a table's running bill. Quantity updates preserve the
+  original price/tax snapshot, recalculate totals on the server, and removing the last unit frees
+  the table. Verified the add/plus/minus/remove flow in the browser.
 - Added analytics for monthly revenue (last 12 months) and best-selling days (top revenue days in
   the selected range), with the best day highlighted on the Analytics page. Revenue excludes
   cancelled bills. Added unit tests for month-window generation, monthly aggregation and

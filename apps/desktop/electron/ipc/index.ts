@@ -131,6 +131,7 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   passthrough('tables:remove', (id: unknown) => `/api/tables/${id}`, 'DELETE');
   passthrough('tables:addItems', (id: unknown) => `/api/tables/${id}/items`, 'POST');
   passthrough('tables:removeItem', (id: unknown, itemId: unknown) => `/api/tables/${id}/items/${itemId}`, 'DELETE');
+  passthrough('tables:setItemQuantity', (id: unknown, itemId: unknown) => `/api/tables/${id}/items/${itemId}`, 'PUT');
   passthrough('tables:checkout', (id: unknown) => `/api/tables/${id}/checkout`, 'POST');
   passthrough('tables:cancel', (id: unknown) => `/api/tables/${id}/cancel`, 'POST');
 

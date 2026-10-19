@@ -42,6 +42,14 @@ const addItemsSchema = z.object({
     .min(1, 'Add at least one item'),
 });
 
+const itemQuantitySchema = z.object({
+  quantity: z.coerce
+    .number()
+    .int('Quantity must be a whole number')
+    .min(0, 'Quantity cannot be negative')
+    .max(999, 'Quantity is too large'),
+});
+
 const checkoutSchema = z.object({
   clientRequestId: z.string().min(8).max(64).optional(),
   customerName: z.string().trim().max(120).optional().or(z.literal('')),
@@ -115,6 +123,24 @@ tablesRouter.post(
   asyncHandler(async (req, res) => {
     const body = addItemsSchema.parse(req.body);
     res.status(201).json(ok(await tableService.addItems(req.params.id, body, req.auth!.userId)));
+  }),
+);
+
+tablesRouter.put(
+  '/:id/items/:itemId',
+  requirePermission('BILL_CREATE'),
+  asyncHandler(async (req, res) => {
+    const body = itemQuantitySchema.parse(req.body);
+    res.json(
+      ok(
+        await tableService.setOrderItemQuantity(
+          req.params.id,
+          req.params.itemId,
+          body.quantity,
+          req.auth!.userId,
+        ),
+      ),
+    );
   }),
 );
 

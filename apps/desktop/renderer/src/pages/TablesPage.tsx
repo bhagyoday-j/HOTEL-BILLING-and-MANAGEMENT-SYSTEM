@@ -4,6 +4,7 @@ import {
   Ban,
   CheckCircle2,
   Layers,
+  Minus,
   Pencil,
   Plus,
   ReceiptText,
@@ -145,6 +146,26 @@ export function TablesPage() {
       void queryClient.invalidateQueries({ queryKey: ['tables'] });
     },
     onError: (err: Error) => toast.error('Item could not be added', err.message),
+  });
+
+  const setQuantityMutation = useMutation({
+    mutationFn: async ({
+      tableId,
+      itemId,
+      quantity,
+    }: {
+      tableId: string;
+      itemId: string;
+      quantity: number;
+    }) => {
+      const res = await api.tables.setItemQuantity(tableId, itemId, quantity);
+      if (!res.success) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tables'] });
+    },
+    onError: (err: Error) => toast.error('Quantity could not be updated', err.message),
   });
 
   const removeItemMutation = useMutation({
@@ -330,9 +351,13 @@ export function TablesPage() {
               removingItemId={
                 removeItemMutation.isPending ? removeItemMutation.variables?.itemId ?? null : null
               }
+              updatingQuantity={setQuantityMutation.isPending}
               voiding={cancelOrderMutation.isPending}
               onAddItem={(menuItemId) =>
                 addItemMutation.mutate({ tableId: selectedTable.id, menuItemId })
+              }
+              onChangeQuantity={(itemId, quantity) =>
+                setQuantityMutation.mutate({ tableId: selectedTable.id, itemId, quantity })
               }
               onRemoveItem={(itemId) =>
                 removeItemMutation.mutate({ tableId: selectedTable.id, itemId })
@@ -510,8 +535,10 @@ function TableBillPanel({
   canBill,
   addingItem,
   removingItemId,
+  updatingQuantity,
   voiding,
   onAddItem,
+  onChangeQuantity,
   onRemoveItem,
   onCheckout,
   onVoid,
@@ -520,8 +547,10 @@ function TableBillPanel({
   canBill: boolean;
   addingItem: boolean;
   removingItemId: string | null;
+  updatingQuantity: boolean;
   voiding: boolean;
   onAddItem: (menuItemId: string) => void;
+  onChangeQuantity: (itemId: string, quantity: number) => void;
   onRemoveItem: (itemId: string) => void;
   onCheckout: () => void;
   onVoid: () => void;
@@ -582,17 +611,44 @@ function TableBillPanel({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{item.name}</p>
                 <p className="text-xs text-ink-muted">
-                  {item.quantity} × {formatCurrency(item.unitPrice)}
+                  {formatCurrency(item.unitPrice)} each
                 </p>
               </div>
-              <span className="text-sm font-medium">{formatCurrency(item.lineTotal)}</span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label={`Decrease ${item.name} quantity`}
+                  disabled={!canBill || updatingQuantity}
+                  onClick={() =>
+                    onChangeQuantity(item.id, Math.max(0, Number(item.quantity) - 1))
+                  }
+                >
+                  <Minus className="h-3 w-3" />
+                </Button>
+                <span className="w-6 text-center text-sm tabular-nums">{item.quantity}</span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label={`Increase ${item.name} quantity`}
+                  disabled={!canBill || updatingQuantity || Number(item.quantity) >= 999}
+                  onClick={() => onChangeQuantity(item.id, Number(item.quantity) + 1)}
+                >
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+              <span className="min-w-16 text-right text-sm font-medium">
+                {formatCurrency(item.lineTotal)}
+              </span>
               {canBill && (
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
                   aria-label={`Remove ${item.name} from table ${table.number}`}
-                  disabled={removingItemId === item.id}
+                  disabled={removingItemId === item.id || updatingQuantity}
                   onClick={() => onRemoveItem(item.id)}
                 >
                   <X className="h-4 w-4 text-danger" />

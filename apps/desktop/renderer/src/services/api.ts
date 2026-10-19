@@ -484,6 +484,15 @@ export const api = {
         () => bridge()!.tables.removeItem(id, itemId),
         () => http<DiningTable>(`/api/tables/${id}/items/${itemId}`, { method: 'DELETE' }),
       ),
+    setItemQuantity: (id: string, itemId: string, quantity: number) =>
+      viaBridge<DiningTable>(
+        () => bridge()!.tables.setItemQuantity(id, itemId, quantity),
+        () =>
+          http<DiningTable>(`/api/tables/${id}/items/${itemId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ quantity }),
+          }),
+      ),
     checkout: (
       id: string,
       data: {

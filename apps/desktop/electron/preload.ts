@@ -43,6 +43,8 @@ const api = {
     addItems: (id: string, data: unknown) => ipcRenderer.invoke('tables:addItems', id, data),
     removeItem: (id: string, itemId: string) =>
       ipcRenderer.invoke('tables:removeItem', id, itemId),
+    setItemQuantity: (id: string, itemId: string, quantity: number) =>
+      ipcRenderer.invoke('tables:setItemQuantity', id, itemId, { quantity }),
     checkout: (id: string, data: unknown) => ipcRenderer.invoke('tables:checkout', id, data),
     cancel: (id: string) => ipcRenderer.invoke('tables:cancel', id),
   },
