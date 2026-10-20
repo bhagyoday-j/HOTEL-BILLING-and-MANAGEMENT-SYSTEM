@@ -285,28 +285,54 @@ export class BillService {
     }
   }
 
-  /** Cancel a bill — never delete. Financial history stays intact. */
+  /**
+   * Cancel a bill — never delete. Financial history stays intact.
+   *
+   * Cancellation is a one-way transition, so the status flip is conditional on
+   * the bill not already being cancelled: a duplicate submit (double click,
+   * retry, second user) updates zero rows and is rejected instead of logging a
+   * second cancellation or overwriting the original reason. Revenue is summed
+   * from the bills that are not cancelled, so a single status change removes the
+   * amount from every revenue figure exactly once and cannot deduct it twice.
+   */
   async cancel(id: string, reason: string, userId: string) {
     const prisma = getPrisma();
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      throw new AppError('CANCEL_REASON_REQUIRED', 'A cancellation reason is required', 400);
+    }
+
     const bill = await prisma.invoice.findFirst({ where: { id, deletedAt: null } });
     if (!bill) throw new AppError('BILL_NOT_FOUND', 'Bill not found', 404);
     if (bill.status === 'CANCELLED') {
       throw new AppError('ALREADY_CANCELLED', 'Bill is already cancelled', 409);
     }
 
-    await prisma.invoice.update({
-      where: { id },
-      data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason },
+    const cancelled = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.invoice.updateMany({
+        where: { id, deletedAt: null, status: { not: 'CANCELLED' } },
+        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: trimmedReason },
+      });
+      // Another request cancelled the bill first — do not log a duplicate.
+      if (count === 0) return false;
+
+      await this.audit.log(
+        {
+          userId,
+          action: 'BILL_CANCEL',
+          entityType: 'Invoice',
+          entityId: id,
+          entityRef: bill.invoiceNumber,
+          details: { reason: trimmedReason, grandTotal: bill.grandTotal.toString() },
+        },
+        tx,
+      );
+      return true;
     });
 
-    await this.audit.log({
-      userId,
-      action: 'BILL_CANCEL',
-      entityType: 'Invoice',
-      entityId: id,
-      entityRef: bill.invoiceNumber,
-      details: { reason },
-    });
+    if (!cancelled) {
+      throw new AppError('ALREADY_CANCELLED', 'Bill is already cancelled', 409);
+    }
     return { cancelled: true };
   }
 }

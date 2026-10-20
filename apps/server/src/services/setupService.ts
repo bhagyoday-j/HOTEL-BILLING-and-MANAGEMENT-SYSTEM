@@ -21,6 +21,18 @@ export const setupSchema = z.object({
     .max(40)
     .regex(/^[a-zA-Z0-9._-]+$/, 'Only letters, numbers, dots, dashes allowed'),
   password: z.string().min(8, 'Password must be at least 8 characters').max(200),
+  // Hotel contact details printed on bills. Optional so a first run never blocks
+  // on them, but collected up front while the owner is already entering details.
+  hotelAddress: z.string().trim().max(200).optional().or(z.literal('')),
+  hotelCity: z.string().trim().max(80).optional().or(z.literal('')),
+  hotelPhone: z.string().trim().max(20).optional().or(z.literal('')),
+  hotelEmail: z
+    .string()
+    .trim()
+    .max(120)
+    .email('Enter a valid email address')
+    .optional()
+    .or(z.literal('')),
 });
 
 export type SetupInput = z.infer<typeof setupSchema>;
@@ -111,7 +123,16 @@ export class SetupService {
 
       let hotel = await tx.hotel.findFirst({ select: { id: true } });
       if (!hotel) {
-        hotel = await tx.hotel.create({ data: { name: input.hotelName }, select: { id: true } });
+        hotel = await tx.hotel.create({
+          data: {
+            name: input.hotelName,
+            address: input.hotelAddress || null,
+            city: input.hotelCity || null,
+            phone: input.hotelPhone || null,
+            email: input.hotelEmail || null,
+          },
+          select: { id: true },
+        });
       }
       for (const [key, value] of DEFAULT_HOTEL_SETTINGS) {
         await tx.hotelSetting.upsert({

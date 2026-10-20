@@ -1,10 +1,11 @@
+import { REVENUE_EXCLUDED_STATUSES } from '@hotel-billing/shared';
 import { getPrisma } from '../utils/prisma';
 import { startOfDay, endOfDay } from '../utils/dates';
 
 type GroupBy = 'day' | 'week' | 'month';
 
 /** Revenue = finalized bills only; cancelled/draft bills are excluded. */
-const REVENUE_EXCLUDED_STATUSES = ['CANCELLED', 'DRAFT', 'REFUNDED'];
+const EXCLUDED_FROM_REVENUE = [...REVENUE_EXCLUDED_STATUSES];
 
 function num(value: unknown): number {
   return Number(value?.toString() ?? '0');
@@ -105,7 +106,7 @@ export class AnalyticsService {
     const bills = await prisma.invoice.findMany({
       where: {
         deletedAt: null,
-        status: { notIn: REVENUE_EXCLUDED_STATUSES },
+        status: { notIn: EXCLUDED_FROM_REVENUE },
         invoiceDate: { gte: from, lte: to },
       },
       select: {
@@ -133,7 +134,7 @@ export class AnalyticsService {
       prisma.invoice.findMany({
         where: {
           deletedAt: null,
-          status: { notIn: REVENUE_EXCLUDED_STATUSES },
+          status: { notIn: EXCLUDED_FROM_REVENUE },
           invoiceDate: { gte: startOfDay(today), lte: endOfDay(today) },
         },
         select: { grandTotal: true },
@@ -141,7 +142,7 @@ export class AnalyticsService {
       prisma.invoice.findMany({
         where: {
           deletedAt: null,
-          status: { notIn: REVENUE_EXCLUDED_STATUSES },
+          status: { notIn: EXCLUDED_FROM_REVENUE },
           invoiceDate: { gte: monthStart, lte: endOfDay(today) },
         },
         select: { grandTotal: true },
@@ -149,7 +150,7 @@ export class AnalyticsService {
       prisma.invoice.findMany({
         where: {
           deletedAt: null,
-          status: { notIn: REVENUE_EXCLUDED_STATUSES },
+          status: { notIn: EXCLUDED_FROM_REVENUE },
           invoiceDate: { gte: monthlyStart, lte: endOfDay(today) },
         },
         select: { invoiceDate: true, grandTotal: true },
@@ -203,7 +204,7 @@ export class AnalyticsService {
       where: {
         invoice: {
           deletedAt: null,
-          status: { notIn: REVENUE_EXCLUDED_STATUSES },
+          status: { notIn: EXCLUDED_FROM_REVENUE },
           invoiceDate: { gte: from, lte: to },
         },
       },

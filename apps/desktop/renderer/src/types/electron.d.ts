@@ -12,6 +12,11 @@ export type ElectronApi = {
     status: () => Promise<unknown>;
     complete: (data: unknown) => Promise<unknown>;
   };
+  license: {
+    status: () => Promise<unknown>;
+    activate: (key: string) => Promise<unknown>;
+    renew: (key: string) => Promise<unknown>;
+  };
   dashboard: {
     summary: () => Promise<unknown>;
   };

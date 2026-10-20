@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, Printer } from 'lucide-react';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState, ErrorState, Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
-import { confirmDialog } from '@/stores/confirmStore';
 import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
 import { formatCurrency } from '@/utils/cn';
@@ -102,6 +102,17 @@ export function InvoicesPage() {
 function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
   const hasPermission = useAuthStore((state) => state.hasPermission);
   const queryClient = useQueryClient();
+  // The cancellation reason is collected in an in-app form: Electron does not
+  // support window.prompt(), so asking for it that way silently aborted the
+  // cancellation and left the bill (and revenue) unchanged in the desktop app.
+  const [cancelFormOpen, setCancelFormOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+
+  useEffect(() => {
+    setCancelFormOpen(false);
+    setCancelReason('');
+  }, [id]);
+
   const billQuery = useQuery({
     queryKey: ['bill', id],
     queryFn: async () => {
@@ -127,10 +138,13 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
     },
     onSuccess: () => {
       toast.success('Bill cancelled');
+      setCancelFormOpen(false);
+      setCancelReason('');
       void queryClient.invalidateQueries({ queryKey: ['bill', id] });
       void queryClient.invalidateQueries({ queryKey: ['bills'] });
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       void queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
     onError: (err: Error) => toast.error('Bill could not be cancelled', err.message),
   });
@@ -230,18 +244,8 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
                 {bill.status !== 'CANCELLED' && hasPermission('BILL_CANCEL') ? (
                   <Button
                     variant="danger"
-                    disabled={cancelMutation.isPending}
-                    onClick={async () => {
-                      const confirmed = await confirmDialog({
-                        title: 'Cancel bill',
-                        message: 'The bill will remain in financial history and be excluded from revenue totals.',
-                        confirmLabel: 'Cancel bill',
-                        danger: true,
-                      });
-                      if (!confirmed) return;
-                      const reason = window.prompt('Cancellation reason:')?.trim();
-                      if (reason) cancelMutation.mutate(reason);
-                    }}
+                    disabled={cancelMutation.isPending || cancelFormOpen}
+                    onClick={() => setCancelFormOpen(true)}
                   >
                     <Ban className="h-4 w-4" /> Cancel bill
                   </Button>
@@ -255,6 +259,47 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
                   </Button>
                 </div>
               </div>
+              {cancelFormOpen && (
+                <form
+                  className="space-y-3 rounded-lg border border-danger/30 bg-danger/5 p-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const reason = cancelReason.trim();
+                    if (reason) cancelMutation.mutate(reason);
+                  }}
+                >
+                  <div className="space-y-1">
+                    <Label htmlFor="cancel-reason">Cancellation reason</Label>
+                    <Input
+                      id="cancel-reason"
+                      autoFocus
+                      maxLength={200}
+                      placeholder="Why is this bill being cancelled?"
+                      value={cancelReason}
+                      onChange={(event) => setCancelReason(event.target.value)}
+                    />
+                    <p className="text-xs text-ink-muted">
+                      The bill stays in financial history but its amount is removed from revenue totals.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="submit" variant="danger" disabled={!cancelReason.trim() || cancelMutation.isPending}>
+                      {cancelMutation.isPending ? 'Cancelling…' : 'Confirm cancellation'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={cancelMutation.isPending}
+                      onClick={() => {
+                        setCancelFormOpen(false);
+                        setCancelReason('');
+                      }}
+                    >
+                      Keep bill
+                    </Button>
+                  </div>
+                </form>
+              )}
             </div>
           ) : null}
         </DialogContent>

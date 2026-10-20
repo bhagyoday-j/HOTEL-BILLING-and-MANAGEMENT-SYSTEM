@@ -1,7 +1,8 @@
+import { REVENUE_EXCLUDED_STATUSES } from '@hotel-billing/shared';
 import { startOfDay, endOfDay } from '../utils/dates';
 import { getPrisma } from '../utils/prisma';
 
-const REVENUE_EXCLUDED_STATUSES = ['CANCELLED', 'DRAFT', 'REFUNDED'];
+const EXCLUDED_FROM_REVENUE = [...REVENUE_EXCLUDED_STATUSES];
 
 function num(value: unknown): number {
   return Number(value?.toString() ?? '0');
@@ -26,7 +27,7 @@ export class DashboardService {
       prisma.invoice.findMany({
         where: {
           deletedAt: null,
-          status: { notIn: REVENUE_EXCLUDED_STATUSES },
+          status: { notIn: EXCLUDED_FROM_REVENUE },
           invoiceDate: { gte: startOfDay(now), lte: endOfDay(now) },
         },
         select: { grandTotal: true },
@@ -71,13 +72,13 @@ export class DashboardService {
       prisma.invoice.findMany({
         where: {
           deletedAt: null,
-          status: { notIn: REVENUE_EXCLUDED_STATUSES },
+          status: { notIn: EXCLUDED_FROM_REVENUE },
           invoiceDate: { gte: monthStart, lte: endOfDay(now) },
         },
         select: { grandTotal: true },
       }),
       prisma.invoice.findMany({
-        where: { deletedAt: null, status: { notIn: REVENUE_EXCLUDED_STATUSES } },
+        where: { deletedAt: null, status: { notIn: EXCLUDED_FROM_REVENUE } },
         select: { grandTotal: true },
       }),
     ]);

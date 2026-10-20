@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { getPrisma } from '../utils/prisma';
 
 export interface AuditInput {
@@ -10,8 +11,12 @@ export interface AuditInput {
 }
 
 export class AuditService {
-  async log(input: AuditInput): Promise<void> {
-    const prisma = getPrisma();
+  /**
+   * Record an audit entry. Pass the surrounding transaction when the audited
+   * write must commit (or roll back) together with its log entry.
+   */
+  async log(input: AuditInput, client?: Prisma.TransactionClient): Promise<void> {
+    const prisma = client ?? getPrisma();
     await prisma.auditLog.create({
       data: {
         userId: input.userId,

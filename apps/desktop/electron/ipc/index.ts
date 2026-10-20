@@ -45,6 +45,30 @@ function body(value: unknown): RequestInit {
   return { method: 'POST', body: JSON.stringify(value ?? {}) };
 }
 
+/**
+ * Printing and main-process backups do not pass through the Express router, so
+ * they check the subscription themselves. The API blocks business routes; this
+ * closes the same gap for privileged IPC actions. A failed check counts as
+ * inactive (the app always needs the local API running).
+ */
+async function hasActiveSubscription(): Promise<boolean> {
+  try {
+    const res = await apiFetchAuth<{ success: boolean; data?: { state?: string } }>(
+      '/api/license/status',
+      sessionToken,
+    );
+    return Boolean(res && res.success && res.data?.state === 'ACTIVE');
+  } catch {
+    return false;
+  }
+}
+
+const SUBSCRIPTION_INACTIVE = () =>
+  fail(
+    'SUBSCRIPTION_INACTIVE',
+    'The software subscription is not active. Activate or renew it to use this feature.',
+  );
+
 export function registerIpcHandlers(_ipc: IpcMain): void {
   // ─── App ──────────────────────────────────────────────────────
   handle('app:getVersion', () => APP_VERSION);
@@ -118,6 +142,11 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   passthrough('setup:status', () => '/api/setup/status');
   passthrough('setup:complete', () => '/api/setup', 'POST');
 
+  // Software subscription (activation / renewal of this PC)
+  passthrough('license:status', () => '/api/license/status');
+  passthrough('license:activate', () => '/api/license/activate', 'POST');
+  passthrough('license:renew', () => '/api/license/renew', 'POST');
+
   // Dashboard
   passthrough('dashboard:summary', () => '/api/dashboard/summary');
 
@@ -182,6 +211,7 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   });
 
   handle('print:invoice', async (_event, payload: { data: unknown; format: string; printerName?: string; silent?: boolean; copies?: number }) => {
+    if (!(await hasActiveSubscription())) return SUBSCRIPTION_INACTIVE();
     try {
       const paths = getAppPaths();
       const data = payload.data as Parameters<typeof printerService.printInvoice>[0];
@@ -202,6 +232,7 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   });
 
   handle('print:test', async (_event, payload: { printerName?: string }) => {
+    if (!(await hasActiveSubscription())) return SUBSCRIPTION_INACTIVE();
     try {
       await printerService.testPrint(payload?.printerName);
       return ok({ printed: true });
@@ -212,6 +243,7 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   });
 
   handle('print:savePdf', async (_event, payload: { data: unknown; format: string }) => {
+    if (!(await hasActiveSubscription())) return SUBSCRIPTION_INACTIVE();
     try {
       const paths = getAppPaths();
       const data = payload.data as Parameters<typeof printerService.saveInvoiceCopy>[0];
@@ -229,6 +261,7 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
 
   // ─── Backup & restore ─────────────────────────────────────────
   handle('backup:create', async () => {
+    if (!(await hasActiveSubscription())) return SUBSCRIPTION_INACTIVE();
     try {
       return ok(await backupService.createBackup('MANUAL'));
     } catch (err) {
@@ -240,6 +273,7 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   handle('backup:list', async () => ok(backupService.listBackups()));
 
   handle('backup:restore', async (event, payload: { filePath: string }) => {
+    if (!(await hasActiveSubscription())) return SUBSCRIPTION_INACTIVE();
     try {
       const win = BrowserWindow.fromWebContents(event.sender);
       const confirm = await dialog.showMessageBox(win!, {
@@ -267,6 +301,7 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   );
 
   handle('backup:export', async (event, payload: { filePath: string }) => {
+    if (!(await hasActiveSubscription())) return SUBSCRIPTION_INACTIVE();
     try {
       const win = BrowserWindow.fromWebContents(event.sender);
       const saved = await backupService.exportBackupToLocation(payload.filePath, win!);

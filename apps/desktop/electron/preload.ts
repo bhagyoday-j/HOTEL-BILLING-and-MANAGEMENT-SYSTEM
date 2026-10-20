@@ -23,6 +23,11 @@ const api = {
     status: () => ipcRenderer.invoke('setup:status'),
     complete: (data: unknown) => ipcRenderer.invoke('setup:complete', data),
   },
+  license: {
+    status: () => ipcRenderer.invoke('license:status'),
+    activate: (key: string) => ipcRenderer.invoke('license:activate', { key }),
+    renew: (key: string) => ipcRenderer.invoke('license:renew', { key }),
+  },
   dashboard: {
     summary: () => ipcRenderer.invoke('dashboard:summary'),
   },

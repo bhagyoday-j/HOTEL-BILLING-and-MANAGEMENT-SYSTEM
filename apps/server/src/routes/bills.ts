@@ -66,7 +66,11 @@ billsRouter.post(
   '/:id/cancel',
   requirePermission('BILL_CANCEL'),
   asyncHandler(async (req, res) => {
-    const body = z.object({ reason: z.string().min(1, 'Reason is required') }).parse(req.body);
+    const body = z
+      .object({
+        reason: z.string().trim().min(1, 'Reason is required').max(200, 'Reason is too long'),
+      })
+      .parse(req.body);
     res.json(ok(await billService.cancel(req.params.id, body.reason, req.auth!.userId)));
   }),
 );

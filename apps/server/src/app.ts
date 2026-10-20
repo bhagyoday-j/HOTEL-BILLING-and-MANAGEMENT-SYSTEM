@@ -13,7 +13,9 @@ import { usersRouter } from './routes/users';
 import { hotelRouter } from './routes/hotel';
 import { settingsRouter } from './routes/settings';
 import { systemRouter } from './routes/system';
+import { licenseRouter } from './routes/license';
 import { errorHandler } from './middleware/errorHandler';
+import { licenseGate } from './middleware/license';
 import { requestLogger } from './middleware/requestLogger';
 
 export function createApp() {
@@ -28,6 +30,11 @@ export function createApp() {
   app.use(express.json({ limit: '2mb' }));
   app.use(requestLogger);
 
+  // Subscription gate: blocks core API access while the licence is missing or
+  // expired. Health, setup, auth and licence endpoints stay reachable so the
+  // owner can sign in and activate/renew.
+  app.use('/api', licenseGate);
+
   app.use('/api/health', healthRouter);
   app.use('/api/auth', authRouter);
   app.use('/api/setup', setupRouter);
@@ -41,6 +48,7 @@ export function createApp() {
   app.use('/api/hotel', hotelRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/system', systemRouter);
+  app.use('/api/license', licenseRouter);
 
   app.use(errorHandler);
 

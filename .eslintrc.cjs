@@ -41,6 +41,13 @@ module.exports = {
     '@typescript-eslint/no-explicit-any': 'warn',
     'no-console': ['warn', { allow: ['warn', 'error'] }],
   },
+  overrides: [
+    {
+      // Vendor CLI: its job is to print keys to the terminal.
+      files: ['scripts/**/*.ts'],
+      rules: { 'no-console': 'off' },
+    },
+  ],
   ignorePatterns: [
     'dist',
     'release',

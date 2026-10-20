@@ -11,6 +11,7 @@ import { EmptyState, ErrorState, Table, TBody, TD, TH, THead, TR } from '@/compo
 import { confirmDialog } from '@/stores/confirmStore';
 import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useLicenseStatus } from '@/hooks/useLicenseStatus';
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'] as const;
 const ROUNDING_MODES = [
@@ -52,6 +53,60 @@ const EMPTY_PROFILE: ProfileForm = {
   gstin: '',
   pan: '',
 };
+
+/**
+ * Subscription summary: how long is left, when it expires and the machine code
+ * needed to renew. Renewal itself happens on the activation screen, which opens
+ * automatically once the paid year ends.
+ */
+function SubscriptionCard() {
+  const license = useLicenseStatus();
+  const data = license.data;
+
+  const stateLabel =
+    data?.state === 'ACTIVE' ? 'Active' : data?.state === 'EXPIRED' ? 'Expired' : 'Not activated';
+  const stateClass =
+    data?.state === 'ACTIVE'
+      ? 'border-success/30 bg-success/10 text-success'
+      : 'border-danger/30 bg-danger/10 text-danger';
+
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <CardTitle>Subscription</CardTitle>
+        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${stateClass}`}>
+          {license.isPending ? 'Checking…' : stateLabel}
+        </span>
+      </div>
+
+      <div className="grid gap-4 text-sm sm:grid-cols-3">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-ink-muted">Expires on</p>
+          <p className="mt-1 font-medium text-ink">
+            {data?.expiresAt ? new Date(data.expiresAt).toLocaleDateString('en-IN') : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs uppercase tracking-wide text-ink-muted">Time remaining</p>
+          <p className="mt-1 font-medium text-ink">
+            {data?.expiresAt
+              ? `${data.daysRemaining} day${data.daysRemaining === 1 ? '' : 's'} left`
+              : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs uppercase tracking-wide text-ink-muted">Machine code</p>
+          <p className="mt-1 font-mono text-ink">{data?.machineCode ?? '—'}</p>
+        </div>
+      </div>
+
+      <p className="text-xs text-ink-muted">
+        Send the machine code to your vendor to renew. A renewal key adds another 12 months and is
+        requested automatically when the subscription expires.
+      </p>
+    </Card>
+  );
+}
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -139,6 +194,8 @@ export function SettingsPage() {
 
       {profileQuery.isError && <ErrorState message={(profileQuery.error as Error).message} />}
       {settingsQuery.isError && <ErrorState message={(settingsQuery.error as Error).message} />}
+
+      <SubscriptionCard />
 
       <Card className="space-y-4">
         <div className="flex items-center justify-between gap-3">

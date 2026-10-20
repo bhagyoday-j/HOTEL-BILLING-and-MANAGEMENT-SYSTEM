@@ -1,4 +1,4 @@
-import type { ApiResponse, SessionUser } from '@hotel-billing/shared';
+import type { ApiResponse, LicenseStatus, SessionUser } from '@hotel-billing/shared';
 import { useAuthStore } from '@/stores/authStore';
 
 function resolveApiBase(): string {
@@ -375,6 +375,10 @@ export const api = {
       ownerFullName: string;
       username: string;
       password: string;
+      hotelAddress?: string;
+      hotelCity?: string;
+      hotelPhone?: string;
+      hotelEmail?: string;
     }) =>
       viaBridge<{ username: string; userId: string }>(
         () => bridge()!.setup.complete(data),
@@ -382,6 +386,33 @@ export const api = {
           http<{ username: string; userId: string }>('/api/setup', {
             method: 'POST',
             body: JSON.stringify(data),
+          }),
+      ),
+  },
+
+  license: {
+    /** Subscription state of this computer (machine code, expiry, term). */
+    status: () =>
+      viaBridge<LicenseStatus>(
+        () => bridge()!.license.status(),
+        () => http<LicenseStatus>('/api/license/status'),
+      ),
+    activate: (key: string) =>
+      viaBridge<LicenseStatus>(
+        () => bridge()!.license.activate(key),
+        () =>
+          http<LicenseStatus>('/api/license/activate', {
+            method: 'POST',
+            body: JSON.stringify({ key }),
+          }),
+      ),
+    renew: (key: string) =>
+      viaBridge<LicenseStatus>(
+        () => bridge()!.license.renew(key),
+        () =>
+          http<LicenseStatus>('/api/license/renew', {
+            method: 'POST',
+            body: JSON.stringify({ key }),
           }),
       ),
   },

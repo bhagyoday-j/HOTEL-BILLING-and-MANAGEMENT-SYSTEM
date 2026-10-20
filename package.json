@@ -23,6 +23,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
+    "license:key": "tsx scripts/license-key.ts",
     "dev:server": "npm run dev --workspace apps/server",
     "typecheck": "npm run typecheck:renderer && npm run typecheck:server && npm run typecheck:electron",
     "typecheck:renderer": "tsc -p apps/desktop/renderer/tsconfig.json --noEmit",

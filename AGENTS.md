@@ -85,6 +85,32 @@ Prisma CLI and no seeded credentials):
 - No default password is shipped. The owner chooses their own during setup and can rotate it in
   **Settings → Account & password** (`POST /api/auth/change-password`).
 
+### Subscription and activation (one year, bound to the PC)
+
+- A fresh installation must be activated before business features work. After setup, the app opens
+  the activation screen, which shows this PC's **machine code** (a 16-character fingerprint of the
+  Windows `MachineGuid`, with a hostname/MAC fallback).
+- The vendor key is `ACTIVATION_KEY` in `apps/server/src/services/licenseService.ts` (`abcd311`).
+  `npm run license:key -- <machine-code>` prints a unique per-machine key for that code; both the
+  shared password and the per-machine key are accepted. Keys are never stored or logged — the
+  database holds only a machine-scoped HMAC of the key.
+- Activation stores one row (`SoftwareLicense`, id `current`) with the machine id, activation date,
+  expiry (activation + 12 months), term index and an HMAC signature over the term.
+- `apps/server/src/middleware/license.ts` blocks every `/api` route except health, setup, auth and
+  licence endpoints with `402 SUBSCRIPTION_REQUIRED` / `402 SUBSCRIPTION_EXPIRED`. The UI mirrors
+  this with a licence gate that routes to `/activate`, but the server check is the real gate.
+  Printing and main-process backups never touch the router, so the Electron IPC handlers check the
+  subscription themselves before acting.
+- Remaining time is visible in the sidebar (`N days left`, expiry in the tooltip) and in
+  **Settings → Subscription** (state, expiry date, days left, machine code).
+- Renewal adds 12 months from the later of today and the current expiry. The signature means editing
+  `expiresAt` in SQLite invalidates the licence (it must be activated again).
+- Copying the AppData folder to another PC does not transfer the subscription: the stored machine id
+  no longer matches, so that PC must be activated.
+- Limitation (accepted): the check runs on the customer's own machine, so a determined attacker who
+  reverse-engineers the packaged app can recompute the signature. Fully tamper-proof licensing needs
+  an online activation server or a hardware dongle.
+
 ### Menu
 
 - List/search active categories and menu items.
@@ -166,6 +192,7 @@ Health is public.
 | Health | `GET /api/health` | Public |
 | Setup | `GET /api/setup/status`, `POST /api/setup` | Public; `POST` only while no owner account exists |
 | Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/change-password` | Login/logout; change-password for the signed-in user |
+| Subscription | `GET /api/license/status`, `POST /api/license/activate`, `POST /api/license/renew` | Signed-in user; exempt from the subscription gate |
 | Dashboard | `GET /api/dashboard/summary` | Authenticated |
 | Menu | `GET /api/menu`, `POST /api/menu/categories`, `POST /api/menu/items`, `PUT /api/menu/items/:id`, `DELETE /api/menu/items/:id` | `MENU_VIEW` / `MENU_MANAGE` |
 | Tables | `GET /api/tables`, `GET /api/tables/:id`, `POST /api/tables`, `PUT/DELETE /api/tables/:id`, `POST /api/tables/:id/items`, `POST /api/tables/bulk`, `PUT/DELETE /api/tables/:id/items/:itemId`, `POST /api/tables/:id/checkout`, `POST /api/tables/:id/cancel` | `MENU_VIEW` / `MENU_MANAGE` / `BILL_VIEW` / `BILL_CREATE` |
@@ -343,6 +370,40 @@ Do not run database reset/seed commands against a production or user database.
   routes to `#/setup` and renders the setup wizard, and an installation that already has an owner
   routes to `#/login`. Physical window behaviour on the target laptop still needs the owner of that
   machine to confirm.
+- **Fixed bill cancellation.** Two defects were found and fixed:
+  1. The Bills page asked for the cancellation reason with `window.prompt()`, which Electron does
+     not implement (`prompt() is and will not be supported.` — verified by calling it through a real
+     Electron `webContents`). The handler threw before sending the request, so in the desktop app a
+     cancelled bill kept its `PAID` status (and its amount stayed in revenue). The reason is now
+     collected in an in-app form inside the bill dialog, with the confirmation step included.
+  2. `BillService.cancel` read the bill status and then updated it, so concurrent double-submits all
+     succeeded: three simultaneous cancels returned `200` three times and wrote three audit rows
+     with different reasons. Cancellation is now a transactional, conditional update (`status != CANCELLED`)
+     with the audit entry in the same transaction; extra submits get `409 ALREADY_CANCELLED`.
+     Revenue remains derived from non-cancelled bills, so the amount leaves every total exactly once.
+  Also centralized the revenue-exclusion status list in `packages/shared/src/revenue.ts`
+  (`isRevenueBill`) so dashboard, analytics and customer spend cannot drift apart. Verified against
+  the live API (two bills, 252.00 total): cancelling one deducts only that bill (84.00 left), a
+  repeat cancel is rejected and does not deduct again, and the customer directory matches. Verified
+  in the browser through Chrome DevTools Protocol: bill `INV-2026-000002` was cancelled from the UI,
+  the list badge changed to `CANCELLED`, all-time revenue fell 252.00 → 168.00 and customer spend
+  followed, with no page errors.
+- **Added the one-year subscription system** (see *Subscription and activation*):
+  `SoftwareLicense` table + migration, `LicenseService` (machine fingerprint, key validation,
+  HMAC-signed term, activation/renewal), a server-side gate on all business API routes, activation /
+  renewal routes, Electron IPC + preload wiring, an activation/renewal screen, and a licence gate
+  that redirects the app to it. Setup also collects optional hotel address, city, phone and email.
+  Verified against a scratch database and through the real UI (Chrome DevTools Protocol):
+  unlicensed → dashboard 402 `SUBSCRIPTION_REQUIRED`; wrong key → 400; `abcd311` → `ACTIVE` for 365
+  days and dashboard 200; second activation → 409; copying the DB to a second machine id →
+  `UNLICENSED` + 402; expired term → 402 `SUBSCRIPTION_EXPIRED` and the renewal screen; renewal (with
+  a per-machine key from `npm run license:key`) → `ACTIVE`, term 2, dashboard 200; hand-editing
+  `expiresAt` → signature fails → `UNLICENSED`; the browser flow ran setup → activation → dashboard
+  → expiry → renewal with no page errors. Confirmed the key is stored only as a hash (no key text in
+  the database or audit log).
+- Fixed the first-run setup bounce: the cached `setup-status` query still said setup was required for
+  30 s, so the login page sent the user straight back to the setup form. Setup now writes
+  `{ required: false }` into the query cache before navigating to sign-in.
 
 ## Remaining work and known issues
 
@@ -366,6 +427,10 @@ not open tasks; **verified** items are done and covered by a check.
    not run `npm audit fix --force` without assessing breaking changes first.
 5. **Vite bundle warning — resolved.** The renderer build splits vendor chunks in
    `apps/desktop/renderer/vite.config.ts`, so no chunk exceeds 500 kB.
+6. **Subscription licensing — offline by design, tamper-detection only.** Activation and renewal are
+   validated locally against a vendor key and a signed, PC-bound term. The key and signing secret
+   ship inside the packaged app, so a determined attacker can reverse-engineer them. Online
+   activation or a hardware dongle would be required for a hard guarantee; currently accepted.
 
 ## Working rules
 

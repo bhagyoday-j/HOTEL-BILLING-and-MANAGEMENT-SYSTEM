@@ -1,4 +1,4 @@
-generator client {
+i this software can user see how many time of subscription is remaininggenerator client {
   provider = "prisma-client-js"
 }
 
@@ -601,6 +601,22 @@ model Sequence {
 
   @@unique([key, year])
   @@index([key])
+}
+
+// One row (`id = "current"`) holds the software subscription for this PC.
+// `machineId` binds the licence to the computer it was activated on, and
+// `signature` is an HMAC over the stored dates so hand-editing the SQLite file
+// cannot extend the subscription silently.
+model SoftwareLicense {
+  id             String   @id
+  machineId      String
+  activationHash String // HMAC of the activation key, never the key itself
+  activatedAt    DateTime
+  expiresAt      DateTime
+  termIndex      Int      @default(1)
+  signature      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model AuditLog {

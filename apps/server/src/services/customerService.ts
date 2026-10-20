@@ -1,3 +1,4 @@
+import { isRevenueBill } from '@hotel-billing/shared';
 import { getPrisma } from '../utils/prisma';
 
 /**
@@ -17,8 +18,6 @@ import { getPrisma } from '../utils/prisma';
  */
 
 /** Statuses excluded from "amount spent" so customer spend matches revenue. */
-const REVENUE_EXCLUDED_STATUSES = new Set(['CANCELLED', 'DRAFT', 'REFUNDED']);
-
 export interface RawBillForCustomer {
   invoiceNumber: string;
   guestName: string | null;
@@ -91,7 +90,7 @@ export function summarizeCustomers(bills: RawBillForCustomer[]): CustomerSummary
         name: bill.guestName?.trim() || null,
         mobile: bill.guestMobile?.trim() || null,
         visits: 1,
-        spent: REVENUE_EXCLUDED_STATUSES.has(bill.status) ? 0 : num(bill.grandTotal),
+        spent: isRevenueBill(bill.status) ? num(bill.grandTotal) : 0,
         lastBillNumber: bill.invoiceNumber,
         firstVisit: date,
         lastVisit: date,
@@ -102,7 +101,7 @@ export function summarizeCustomers(bills: RawBillForCustomer[]): CustomerSummary
     }
 
     existing.visits += 1;
-    if (!REVENUE_EXCLUDED_STATUSES.has(bill.status)) existing.spent += num(bill.grandTotal);
+    if (isRevenueBill(bill.status)) existing.spent += num(bill.grandTotal);
     if (date < existing.firstVisit) existing.firstVisit = date;
     // Keep the most recent bill's details (name/mobile may have been refined).
     if (date >= existing.lastVisit) {

@@ -19,6 +19,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CommandMenu } from '@/components/CommandMenu';
 import { ConfirmDialog } from '@/components/ui/confirmDialog';
 import { Toaster } from '@/components/ui/toaster';
+import { useLicenseStatus } from '@/hooks/useLicenseStatus';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -36,6 +37,7 @@ export function AppShell() {
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
 
+  const licenseQuery = useLicenseStatus();
   const hotelQuery = useQuery({
     queryKey: ['hotel'],
     queryFn: async () => {
@@ -95,6 +97,21 @@ export function AppShell() {
         <div className="border-t border-white/10 px-4 py-4 text-xs text-sidebar-muted">
           <div>{APP_NAME}</div>
           <div className="mt-0.5">Version {APP_VERSION}</div>
+          {licenseQuery.data && (
+            <div
+              className={cn(
+                'mt-1',
+                licenseQuery.data.daysRemaining <= 30 && 'text-brass-soft',
+              )}
+              title={
+                licenseQuery.data.expiresAt
+                  ? `Subscription valid until ${new Date(licenseQuery.data.expiresAt).toLocaleDateString('en-IN')}`
+                  : undefined
+              }
+            >
+              {licenseQuery.data.daysRemaining} days left
+            </div>
+          )}
         </div>
         <CommandMenu />
       </aside>

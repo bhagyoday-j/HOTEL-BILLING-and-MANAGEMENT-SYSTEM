@@ -12,6 +12,8 @@ import { UsersPage } from './pages/UsersPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useAuthStore } from './stores/authStore';
 import { ComingSoonPage } from './pages/ComingSoonPage';
+import { ActivationPage } from './pages/ActivationPage';
+import { useLicenseStatus } from './hooks/useLicenseStatus';
 
 const Router = window.location.protocol === 'file:' ? HashRouter : BrowserRouter;
 
@@ -19,6 +21,43 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+  return children;
+}
+
+/**
+ * Subscription gate. Business modules are also blocked by the local API while
+ * the licence is missing or expired, so this only routes the user to the
+ * activation screen instead of letting every page fail with 402s.
+ */
+function LicenseGate({ children }: { children: React.ReactNode }) {
+  const license = useLicenseStatus();
+
+  if (license.isPending) {
+    return (
+      <div className="flex h-full min-h-screen items-center justify-center text-sm text-ink-muted">
+        Checking subscription…
+      </div>
+    );
+  }
+  if (license.isError) {
+    return (
+      <div className="flex h-full min-h-screen items-center justify-center p-6">
+        <div className="max-w-md rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+          {(license.error as Error).message}
+          <button
+            type="button"
+            className="mt-3 block underline"
+            onClick={() => void license.refetch()}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (!license.data || license.data.state !== 'ACTIVE') {
+    return <Navigate to="/activate" replace />;
   }
   return children;
 }
@@ -48,10 +87,20 @@ export function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/setup" element={<SetupPage />} />
         <Route
+          path="/activate"
+          element={
+            <ProtectedRoute>
+              <ActivationPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/"
           element={
             <ProtectedRoute>
-              <AppShell />
+              <LicenseGate>
+                <AppShell />
+              </LicenseGate>
             </ProtectedRoute>
           }
         >

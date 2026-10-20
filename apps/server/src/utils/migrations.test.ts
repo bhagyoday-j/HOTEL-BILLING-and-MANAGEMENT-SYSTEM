@@ -95,8 +95,10 @@ describe('bundled migrations', () => {
   });
 
   it('keeps the invoice idempotency migration as two statements', () => {
-    const latest = migrationFiles().at(-1)!;
-    expect(splitSqlStatements(fs.readFileSync(latest, 'utf8'))).toEqual([
+    const file = migrationFiles().find((path) =>
+      path.includes('20261013120000_add_invoice_client_request_id'),
+    )!;
+    expect(splitSqlStatements(fs.readFileSync(file, 'utf8'))).toEqual([
       'ALTER TABLE "Invoice" ADD COLUMN "clientRequestId" TEXT',
       'CREATE UNIQUE INDEX "Invoice_clientRequestId_key" ON "Invoice"("clientRequestId")',
     ]);

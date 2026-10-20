@@ -18,7 +18,10 @@ runs a local Express API against a SQLite database. Online sync is out of scope.
   and tax rates, calculates totals with the shared billing engine, and finalizes the bill as
   `PAID`. A client request ID makes duplicate submits idempotent.
 - **Bills** — list, search, inspect and cancel bills. Cancelling preserves the financial record and
-  reason; it never deletes the bill.
+  reason; it never deletes the bill, and the amount is removed from every revenue figure once.
+- **One-year subscription** — the installation must be activated with a vendor key before business
+  features can be used. Activation is bound to the PC, expires after a year and is extended with a
+  renewal key.
 - **Dashboard & analytics** — today's bill count/revenue and recent bills; owner-only analytics with
   date range, revenue/bill totals, average bill, revenue series, monthly revenue for the last 12
   months, best-selling items, best-selling days and recent bills.
@@ -127,6 +130,50 @@ in the installed app.
 The seed also normalizes accounts to the two-role model: any legacy account (reception, cashier,
 etc.) is reassigned to `MANAGER` rather than deleted, so old logins may still work as managers.
 
+After setup the app opens the activation screen: enter the activation key to start the one-year
+subscription (see below). Until then, business modules stay blocked by the local API.
+
+## Software subscription
+
+Every installation runs on a one-year subscription that is activated offline, so the app keeps
+working without internet access.
+
+1. **Setup** — on first launch the owner creates the admin username/password and enters the hotel
+   name and contact details. This part is stored in the local database.
+2. **Activation** — the activation screen shows this PC's **machine code**. The customer sends that
+   code to the vendor, who returns the activation key. A valid key activates the software for 12
+   months.
+3. **Expiry** — after the year ends, health, sign-in and the activation endpoints stay reachable,
+   but menu, tables, bills, customers, analytics, manager accounts, settings and backups return
+   `402 SUBSCRIPTION_EXPIRED` until a renewal key is entered. Printing and main-process backups
+   are refused by the desktop shell for the same reason.
+4. **Renewal** — a renewal key adds another 12 months. An active subscription extends from its
+   current expiry, an expired one restarts from today.
+
+**Seeing the remaining time.** The sidebar shows `N days left` (tooltip: the expiry date), and
+**Settings → Subscription** shows the state, expiry date, days remaining and this PC's machine code.
+The activation/renewal screen appears by itself once the term ends.
+
+**Vendor key.** The activation password in `apps/server/src/services/licenseService.ts`
+(`ACTIVATION_KEY`) is the shared key we hand to customers. For a unique key per PC, generate one
+from the machine code the app shows:
+
+```powershell
+npm run license:key -- ABCD-EFGH-IJKL-MNOP
+```
+
+The printed key only activates that one computer and is also accepted as its renewal key.
+
+**Machine binding.** The licence row records the machine fingerprint (Windows `MachineGuid`, with a
+hostname/MAC fallback). Copying `%APPDATA%\Hotel Billing` to another computer makes the licence
+invalid there, so it must be activated on the new machine. The stored term is signed with an HMAC,
+so editing `expiresAt` by hand in the SQLite file invalidates it.
+
+**Security limits.** The check runs on the customer's own machine, so this is tamper-*detection*, not
+DRM: someone who reverse-engineers the packaged app could recompute the signature. The key itself is
+never stored (only a machine-scoped hash) and is never written to logs. Truly tamper-proof licensing
+would require an online activation server or a hardware dongle.
+
 ## Roles and permissions
 
 The role model has exactly two roles:
@@ -159,6 +206,7 @@ Permissions are enforced server-side on every protected route; UI gating is a co
 | `npm run db:migrate:deploy` | `prisma migrate deploy` |
 | `npm run db:seed` | Seed roles, permissions, tax defaults and invoice sequence (no sample data) |
 | `npm run db:studio` | Prisma Studio |
+| `npm run license:key -- <machine-code>` | Print the per-machine activation key for a PC |
 
 ## Database
 
@@ -204,6 +252,7 @@ Health is public.
 | Health | `GET /api/health` | Public |
 | Setup | `GET /api/setup/status`, `POST /api/setup` | Public, but `POST` only while no owner account exists |
 | Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/change-password` | Login/logout; change-password for the signed-in user |
+| Subscription | `GET /api/license/status`, `POST /api/license/activate`, `POST /api/license/renew` | Signed-in user; exempt from the subscription gate |
 | Dashboard | `GET /api/dashboard/summary` | Authenticated |
 | Menu | `GET /api/menu`, `POST /api/menu/categories`, `POST /api/menu/items`, `PUT /api/menu/items/:id`, `DELETE /api/menu/items/:id` | `MENU_VIEW` / `MENU_MANAGE` |
 | Tables | `GET /api/tables`, `GET /api/tables/:id`, `POST /api/tables`, `PUT/DELETE /api/tables/:id`, `POST /api/tables/bulk`, `POST /api/tables/:id/items`, `PUT/DELETE /api/tables/:id/items/:itemId`, `POST /api/tables/:id/checkout`, `POST /api/tables/:id/cancel` | `MENU_VIEW` / `MENU_MANAGE` / `BILL_VIEW` / `BILL_CREATE` |

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -14,6 +15,12 @@ import { APP_NAME, APP_VERSION } from '@hotel-billing/shared';
 const schema = z
   .object({
     hotelName: z.string().trim().min(1, 'Hotel name is required').max(120),
+    hotelAddress: z.string().trim().max(200).optional(),
+    hotelCity: z.string().trim().max(80).optional(),
+    hotelPhone: z.string().trim().max(20).optional(),
+    hotelEmail: z
+      .union([z.string().trim().email('Enter a valid email address'), z.literal('')])
+      .optional(),
     ownerFullName: z.string().trim().min(1, 'Your name is required').max(120),
     username: z
       .string()
@@ -38,6 +45,7 @@ type FormValues = z.infer<typeof schema>;
  */
 export function SetupPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const setupStatus = useSetupStatus();
   const setLastUsername = useAuthStore((s) => s.setLastUsername);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +55,10 @@ export function SetupPage() {
     resolver: zodResolver(schema),
     defaultValues: {
       hotelName: '',
+      hotelAddress: '',
+      hotelCity: '',
+      hotelPhone: '',
+      hotelEmail: '',
       ownerFullName: '',
       username: '',
       password: '',
@@ -67,11 +79,18 @@ export function SetupPage() {
         ownerFullName: values.ownerFullName,
         username: values.username,
         password: values.password,
+        hotelAddress: values.hotelAddress?.trim() || undefined,
+        hotelCity: values.hotelCity?.trim() || undefined,
+        hotelPhone: values.hotelPhone?.trim() || undefined,
+        hotelEmail: values.hotelEmail?.trim() || undefined,
       });
       if (!res.success) {
         setError(res.error.message);
         return;
       }
+      // The setup-status query is cached for 30s; without this the login page
+      // still believes setup is required and bounces straight back here.
+      queryClient.setQueryData(['setup-status'], { required: false });
       setLastUsername(values.username);
       navigate('/login', { replace: true, state: { setupComplete: true } });
     } catch {
@@ -101,6 +120,9 @@ export function SetupPage() {
               This installation has no accounts yet. Enter your hotel name and create the owner
               account you will sign in with.
             </p>
+            <p className="mt-2 text-sm text-ink-muted">
+              You will enter your one-year activation key on the next screen, after signing in.
+            </p>
           </div>
 
           <form className="space-y-5" onSubmit={(event) => void onSubmit(event)}>
@@ -118,6 +140,38 @@ export function SetupPage() {
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="hotelAddress">Hotel address (optional)</Label>
+                <Input id="hotelAddress" placeholder="12 Market Road" {...form.register('hotelAddress')} />
+                {form.formState.errors.hotelAddress && (
+                  <p className="text-xs text-danger">{form.formState.errors.hotelAddress.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="hotelCity">City (optional)</Label>
+                <Input id="hotelCity" placeholder="Pune" {...form.register('hotelCity')} />
+                {form.formState.errors.hotelCity && (
+                  <p className="text-xs text-danger">{form.formState.errors.hotelCity.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="hotelPhone">Phone (optional)</Label>
+                <Input id="hotelPhone" placeholder="+91 98765 43210" {...form.register('hotelPhone')} />
+                {form.formState.errors.hotelPhone && (
+                  <p className="text-xs text-danger">{form.formState.errors.hotelPhone.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="hotelEmail">Email (optional)</Label>
+                <Input id="hotelEmail" type="email" placeholder="frontdesk@hotel.com" {...form.register('hotelEmail')} />
+                {form.formState.errors.hotelEmail && (
+                  <p className="text-xs text-danger">{form.formState.errors.hotelEmail.message}</p>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="ownerFullName">Owner name</Label>
                 <Input id="ownerFullName" autoComplete="name" {...form.register('ownerFullName')} />
