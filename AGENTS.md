@@ -189,8 +189,10 @@ services, permissions and tests.
 - Production database: `%APPDATA%\Hotel Billing\data\hotel.db`.
 - Local API: `http://127.0.0.1:3847`.
 - Vite renderer: `http://127.0.0.1:5173`.
-- Local seed accounts currently include `admin / Admin@123` and `manager / Manager@123`. These are
-  development-only credentials; never use them in production.
+- No default credentials: while no owner account exists, the app shows a one-time setup screen
+  (`POST /api/setup`) where you choose the hotel name, username and password. The seed creates
+  scaffolding only (roles, permissions, tax defaults, invoice sequence) — never accounts or
+  sample menu/hotel data.
 
 ## Setup, run, and validate
 
@@ -203,6 +205,8 @@ npm run dev
 ```
 
 Open `http://127.0.0.1:5173`; verify `http://127.0.0.1:3847/api/health`.
+On a fresh database the sign-in page redirects to the setup screen; create the owner account
+there, then sign in with it.
 For the desktop shell, keep `npm run dev` running in one terminal and run
 `npm run dev:electron` in another.
 
@@ -222,6 +226,16 @@ Do not run database reset/seed commands against a production or user database.
 
 ## Work completed and verified
 
+- Removed all dummy data for client delivery: `prisma/dev.db` was wiped (a fresh boot applies
+  migrations and reports `setup.status.required = true`), and `prisma/seed.ts` no longer creates
+  dev users (`admin/Admin@123`), the sample hotel or the demo menu — it seeds roles, permissions,
+  tax defaults and the invoice sequence only. README/AGENTS credentials docs updated to match.
+- Fixed the Electron IPC passthrough silently dropping the `DELETE` method: DELETE channels sent
+  `init: undefined`, so `fetch()` issued a GET and deletes became reads — in the desktop app
+  "Remove table" toasted success while the table stayed. DELETE now sends `{ method: 'DELETE' }`
+  (no body). Verified A/B through the real app over CDP: pre-fix the table remained and the
+  server saw no DELETE; post-fix `DELETE /api/tables/:id` → 200, the card disappears and the
+  server list drops it. `menu:deleteItem`, `tables:removeItem` and `users:remove` verified too.
 - Fixed Electron's package entry to the compiled main file and updated `dev:electron` to compile
   Electron TypeScript before launching.
 - Fixed browser API auth headers to read the live Zustand auth token. Auth state is in

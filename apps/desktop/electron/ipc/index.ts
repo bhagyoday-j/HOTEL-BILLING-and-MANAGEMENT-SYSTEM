@@ -92,18 +92,24 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET',
   ) => {
     handle(channel, async (event, ...args: unknown[]) => {
-      // DELETE routes take their identifiers from the URL and ignore bodies;
+      // DELETE routes take their identifiers from the URL and carry no body,
+      // but the method itself must still be sent — omitting it makes fetch()
+      // default to GET, which silently turns a delete into a read.
       // POST/PUT bodies must be objects for Express' strict JSON parser.
       const payload = args[args.length - 1];
-      const init: RequestInit | undefined =
-        method === 'GET' || method === 'DELETE'
-          ? undefined
-          : {
-              method,
-              body: JSON.stringify(
-                typeof payload === 'object' && payload !== null ? payload : {},
-              ),
-            };
+      let init: RequestInit | undefined;
+      if (method === 'GET') {
+        init = undefined;
+      } else if (method === 'DELETE') {
+        init = { method };
+      } else {
+        init = {
+          method,
+          body: JSON.stringify(
+            typeof payload === 'object' && payload !== null ? payload : {},
+          ),
+        };
+      }
       return callApi(event, buildPath(...args), init);
     });
   };

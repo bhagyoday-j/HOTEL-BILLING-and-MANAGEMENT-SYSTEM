@@ -86,6 +86,10 @@ npm run db:migrate
 npm run db:seed
 ```
 
+The seed creates scaffolding only — roles, permissions, default tax rows and the invoice
+sequence. It contains **no accounts and no sample data**: on first run the app shows the
+setup screen where you create the owner account, hotel profile and menu yourself.
+
 ## Running
 
 Development runs the API and renderer together:
@@ -113,18 +117,15 @@ npm run dev:electron
 `npm run dev:electron` compiles the Electron TypeScript first, then launches the shell (package
 entry: `apps/desktop/electron/dist/main.js`).
 
-## Development credentials
+## First sign-in
 
-These are development-only seed accounts from `npm run db:seed`. **Never use them in production** —
-the installed app creates its own owner account through first-run setup instead.
+No default password ships with this project. After `npm run db:seed` (or on a packaged install),
+open `http://127.0.0.1:5173` — while no owner account exists the app shows a one-time setup
+screen where you choose the hotel name, your username and your own password. The same flow runs
+in the installed app.
 
-| Username | Password | Role |
-|----------|----------|------|
-| `admin` | `Admin@123` | ADMIN |
-| `manager` | `Manager@123` | MANAGER |
-
-The seed normalizes accounts to the two-role model: any legacy account (reception, cashier, etc.)
-is reassigned to `MANAGER` rather than deleted, so old logins may still work as managers.
+The seed also normalizes accounts to the two-role model: any legacy account (reception, cashier,
+etc.) is reassigned to `MANAGER` rather than deleted, so old logins may still work as managers.
 
 ## Roles and permissions
 
@@ -156,7 +157,7 @@ Permissions are enforced server-side on every protected route; UI gating is a co
 | `npm run db:generate` | `prisma generate` |
 | `npm run db:migrate` | `prisma migrate dev` |
 | `npm run db:migrate:deploy` | `prisma migrate deploy` |
-| `npm run db:seed` | Seed roles, users, hotel, taxes, menu, sequences |
+| `npm run db:seed` | Seed roles, permissions, tax defaults and invoice sequence (no sample data) |
 | `npm run db:studio` | Prisma Studio |
 
 ## Database
