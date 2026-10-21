@@ -1,4 +1,4 @@
-i this software can user see how many time of subscription is remaininggenerator client {
+generator client {
   provider = "prisma-client-js"
 }
 
@@ -29,6 +29,7 @@ model User {
 
   invoicesCreated   Invoice[]       @relation("InvoiceCreatedBy")
   paymentsCreated   Payment[]       @relation("PaymentCreatedBy")
+  sessions          AuthSession[]
   expenses          Expense[]
   cashSessions      CashSession[]
   auditLogs         AuditLog[]
@@ -601,6 +602,20 @@ model Sequence {
 
   @@unique([key, year])
   @@index([key])
+}
+
+/// Signed-in sessions. Persisted so a user stays signed in until they log out,
+/// including across application and server restarts. Only the SHA-256 hash of
+/// the bearer token is stored.
+model AuthSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  username  String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // One row (`id = "current"`) holds the software subscription for this PC.

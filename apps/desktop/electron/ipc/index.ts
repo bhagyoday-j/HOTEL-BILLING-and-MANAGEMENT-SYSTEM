@@ -96,6 +96,16 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   handle('auth:changePassword', async (event, payload: { currentPassword: string; newPassword: string }) =>
     callApi(event, '/api/auth/change-password', body(payload ?? {})),
   );
+  // The renderer keeps its session in localStorage; after an app restart the
+  // main process has no token yet, so the renderer hands it back here. The
+  // server validates it on the next call and 401s if it was revoked.
+  handle('auth:setToken', (_event, payload: { token?: unknown }) => {
+    if (typeof payload?.token !== 'string' || payload.token.length === 0) {
+      return fail('INVALID_TOKEN', 'A session token is required');
+    }
+    sessionToken = payload.token;
+    return ok({ restored: true });
+  });
   handle('auth:logout', async (_event, payload: { userId?: string }) => {
     try {
       return await apiFetchAuth('/api/auth/logout', sessionToken, {

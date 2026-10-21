@@ -1,77 +1,83 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { getPrisma } from '../utils/prisma';
 
 export interface SessionRecord {
   token: string;
   userId: string;
   username: string;
   createdAt: number;
-  expiresAt: number;
 }
 
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
-
 /**
- * Local, offline session store. Tokens never leave this machine and are
- * discarded when the API process restarts (users simply log in again).
+ * Persistent sign-in sessions.
+ *
+ * Sessions live in SQLite rather than process memory, so signing in survives a
+ * restart of the app (and of the local API process) — the user stays signed in
+ * until they explicitly sign out. The bearer token itself is never stored: only
+ * its SHA-256 hash, so a database copy cannot be used to impersonate a user.
+ *
+ * Password changes and account deactivation/archival still revoke sessions
+ * immediately, and only one session per account is kept.
  */
-class SessionStore {
-  private sessions = new Map<string, SessionRecord>();
+export class SessionStore {
+  async create(userId: string, username: string): Promise<SessionRecord> {
+    const prisma = getPrisma();
+    // Single active session per account, matching the previous behaviour.
+    await prisma.authSession.deleteMany({ where: { userId } });
 
-  create(userId: string, username: string): SessionRecord {
-    // Remove any previous sessions for this user (single active session per user)
-    for (const [token, rec] of this.sessions) {
-      if (rec.userId === userId) this.sessions.delete(token);
-    }
     const token = randomBytes(32).toString('base64url');
-    const record: SessionRecord = {
+    const row = await prisma.authSession.create({
+      data: { tokenHash: hashSessionToken(token), userId, username },
+    });
+
+    return {
       token,
-      userId,
-      username,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + SESSION_TTL_MS,
+      userId: row.userId,
+      username: row.username,
+      createdAt: row.createdAt.getTime(),
     };
-    this.sessions.set(token, record);
-    return record;
   }
 
-  get(token: string | undefined | null): SessionRecord | null {
+  async get(token: string | undefined | null): Promise<SessionRecord | null> {
     if (!token) return null;
-    const rec = this.sessions.get(token);
-    if (!rec) return null;
-    if (rec.expiresAt < Date.now()) {
-      this.sessions.delete(token);
-      return null;
-    }
-    return rec;
+    const row = await getPrisma().authSession.findUnique({
+      where: { tokenHash: hashSessionToken(token) },
+    });
+    if (!row) return null;
+    return {
+      token,
+      userId: row.userId,
+      username: row.username,
+      createdAt: row.createdAt.getTime(),
+    };
   }
 
-  revoke(token: string): void {
-    this.sessions.delete(token);
+  async revoke(token: string): Promise<void> {
+    await getPrisma().authSession.deleteMany({ where: { tokenHash: hashSessionToken(token) } });
   }
 
-  revokeAllForUser(userId: string): void {
-    for (const [token, rec] of this.sessions) {
-      if (rec.userId === userId) this.sessions.delete(token);
-    }
+  async revokeAllForUser(userId: string): Promise<void> {
+    await getPrisma().authSession.deleteMany({ where: { userId } });
   }
 
   /**
    * Drop every session of a user except the one making the change — used after a
    * password change so the person who changed it stays signed in on this machine.
    */
-  revokeAllExcept(userId: string, keepToken: string | undefined): void {
-    for (const [token, rec] of this.sessions) {
-      if (rec.userId === userId && token !== keepToken) this.sessions.delete(token);
+  async revokeAllExcept(userId: string, keepToken: string | undefined): Promise<void> {
+    if (!keepToken) {
+      await this.revokeAllForUser(userId);
+      return;
     }
+    await getPrisma().authSession.deleteMany({
+      where: { userId, tokenHash: { not: hashSessionToken(keepToken) } },
+    });
   }
+}
 
-  /** Drop expired entries; called opportunistically on each auth check. */
-  sweep(): void {
-    const now = Date.now();
-    for (const [token, rec] of this.sessions) {
-      if (rec.expiresAt < now) this.sessions.delete(token);
-    }
-  }
+/** Tokens are stored hashed; the raw token only ever lives on the client. */
+export function hashSessionToken(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
 export const sessionStore = new SessionStore();

@@ -18,6 +18,8 @@ const api = {
     logout: (userId?: string) => ipcRenderer.invoke('auth:logout', { userId }),
     changePassword: (currentPassword: string, newPassword: string) =>
       ipcRenderer.invoke('auth:changePassword', { currentPassword, newPassword }),
+    /** Re-attach the stored session token to the main process after a restart. */
+    setToken: (token: string) => ipcRenderer.invoke('auth:setToken', { token }),
   },
   setup: {
     status: () => ipcRenderer.invoke('setup:status'),

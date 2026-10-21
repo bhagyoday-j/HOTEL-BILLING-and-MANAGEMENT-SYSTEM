@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { api } from './services/api';
 import { AppShell } from './layouts/AppShell';
 import { LoginPage } from './pages/LoginPage';
 import { SetupPage } from './pages/SetupPage';
@@ -81,6 +83,29 @@ function PermissionRoute({
 }
 
 export function App() {
+  // Wait for a persisted session to be handed back to the desktop bridge before
+  // rendering protected pages, so the first requests carry the token.
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await api.auth.restoreSession(useAuthStore.getState().token);
+      if (!cancelled) setSessionReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!sessionReady) {
+    return (
+      <div className="flex h-full min-h-screen items-center justify-center text-sm text-ink-muted">
+        Restoring session…
+      </div>
+    );
+  }
+
   return (
     <Router>
       <Routes>

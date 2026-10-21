@@ -69,7 +69,7 @@ export class AuthService {
       permissions: user.role.permissions.map((rp) => rp.permission.code),
     };
 
-    const session = sessionStore.create(user.id, user.username);
+    const session = await sessionStore.create(user.id, user.username);
 
     return { user: sessionUser, token: session.token };
   }
@@ -103,7 +103,7 @@ export class AuthService {
       data: { passwordHash: await argon2.hash(newPassword) },
     });
 
-    sessionStore.revokeAllExcept(user.id, currentToken);
+    await sessionStore.revokeAllExcept(user.id, currentToken);
 
     await this.audit.log({
       userId: user.id,
@@ -115,9 +115,9 @@ export class AuthService {
   }
 
   async logout(userId?: string, token?: string): Promise<void> {
-    if (token) sessionStore.revoke(token);
+    if (token) await sessionStore.revoke(token);
     if (userId) {
-      sessionStore.revokeAllForUser(userId);
+      await sessionStore.revokeAllForUser(userId);
       await this.audit.log({
         userId,
         action: 'LOGOUT',

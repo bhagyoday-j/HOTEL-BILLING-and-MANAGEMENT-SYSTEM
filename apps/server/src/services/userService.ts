@@ -112,11 +112,11 @@ export class UserService {
     if (input.phone !== undefined) data.phone = input.phone || null;
     if (input.isActive !== undefined) {
       data.isActive = input.isActive;
-      if (!input.isActive) sessionStore.revokeAllForUser(id); // deactivate → immediate lockout
+      if (!input.isActive) await sessionStore.revokeAllForUser(id); // deactivate → immediate lockout
     }
     if (input.password) {
       data.passwordHash = await argon2.hash(input.password);
-      sessionStore.revokeAllForUser(id); // password reset → invalidate sessions
+      await sessionStore.revokeAllForUser(id); // password reset → invalidate sessions
     }
 
     if (Object.keys(data).length === 0) {
@@ -158,7 +158,7 @@ export class UserService {
       where: { id },
       data: { deletedAt: new Date(), isActive: false },
     });
-    sessionStore.revokeAllForUser(id);
+    await sessionStore.revokeAllForUser(id);
 
     await this.audit.log({
       userId: actorId,

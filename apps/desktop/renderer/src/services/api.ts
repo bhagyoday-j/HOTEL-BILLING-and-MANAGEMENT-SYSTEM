@@ -331,6 +331,20 @@ export interface ManagerAccount {
 // ─── API methods ──────────────────────────────────────────────
 export const api = {
   auth: {
+    /**
+     * Hand the persisted session token back to the desktop main process after an
+     * app restart. In the browser the API is called directly, so nothing to do.
+     */
+    async restoreSession(token: string | null): Promise<void> {
+      const b = bridge();
+      if (!token || !b) return;
+      try {
+        await b.auth.setToken(token);
+      } catch {
+        // A failed restore simply means the next call answers UNAUTHENTICATED,
+        // which clears the stale session and returns the user to sign-in.
+      }
+    },
     async login(username: string, password: string) {
       const b = bridge();
       if (b) {

@@ -7,6 +7,7 @@ export type ElectronApi = {
     login: (username: string, password: string) => Promise<unknown>;
     logout: (userId?: string) => Promise<unknown>;
     changePassword: (currentPassword: string, newPassword: string) => Promise<unknown>;
+    setToken: (token: string) => Promise<unknown>;
   };
   setup: {
     status: () => Promise<unknown>;

@@ -20,15 +20,19 @@ function extractToken(header: string | undefined): string | undefined {
 }
 
 export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
-  sessionStore.sweep();
-  const token = extractToken(req.headers.authorization);
-  const session = sessionStore.get(token);
-  if (!session) {
-    next(new AppError('UNAUTHENTICATED', 'Please sign in to continue', 401));
-    return;
-  }
-  req.auth = { token: session.token, userId: session.userId, username: session.username };
-  next();
+  void (async () => {
+    try {
+      const session = await sessionStore.get(extractToken(req.headers.authorization));
+      if (!session) {
+        next(new AppError('UNAUTHENTICATED', 'Please sign in to continue', 401));
+        return;
+      }
+      req.auth = { token: session.token, userId: session.userId, username: session.username };
+      next();
+    } catch (err) {
+      next(err);
+    }
+  })();
 }
 
 /**
@@ -37,13 +41,13 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
  */
 export function requirePermission(...codes: string[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    const session = sessionStore.get(extractToken(req.headers.authorization));
-    if (!session) {
-      next(new AppError('UNAUTHENTICATED', 'Please sign in to continue', 401));
-      return;
-    }
     void (async () => {
       try {
+        const session = await sessionStore.get(extractToken(req.headers.authorization));
+        if (!session) {
+          next(new AppError('UNAUTHENTICATED', 'Please sign in to continue', 401));
+          return;
+        }
         const { getPrisma } = await import('../utils/prisma');
         const user = await getPrisma().user.findFirst({
           where: { id: session.userId, deletedAt: null, isActive: true },

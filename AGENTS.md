@@ -23,7 +23,7 @@ Electron main
   └─ typed bridge: window.api.*
        ↓
 React renderer (Vite; UI only, no Node/fs/db access)
-  ├─ Zustand auth state (sessionStorage in browser)
+  ├─ Zustand auth state (localStorage; sessions persisted in SQLite)
   └─ HTTP http://127.0.0.1:3847 in browser / IPC in Electron
        ↓
 Express local API
@@ -265,9 +265,18 @@ Do not run database reset/seed commands against a production or user database.
   server list drops it. `menu:deleteItem`, `tables:removeItem` and `users:remove` verified too.
 - Fixed Electron's package entry to the compiled main file and updated `dev:electron` to compile
   Electron TypeScript before launching.
-- Fixed browser API auth headers to read the live Zustand auth token. Auth state is in
-  `sessionStorage`, allowing reload within the same tab. An `UNAUTHENTICATED` response now clears
+- Browser API auth headers read the live Zustand auth token. An `UNAUTHENTICATED` response clears
   stale auth state and returns protected routes to login.
+- **Sign-in persists until logout.** Sessions previously lived in the API process memory with a
+  12-hour TTL and the renderer kept its token in `sessionStorage`, so restarting the app or the API
+  signed the user out. Sessions are now rows in `AuthSession` (SQLite, SHA-256 of the token only)
+  and the renderer stores its token in `localStorage`; the desktop main process receives the token
+  back through `auth:setToken` on startup so its IPC calls stay authenticated. Logout, password
+  changes and account deactivation/archival still revoke sessions, and only one session per account
+  is kept. Verified: a token kept working after the API process was restarted, logout returned
+  `401` afterwards, and in the browser a sign-in survived a full reload (dashboard and other pages
+  opened without signing in again), logout cleared the stored token, and a revoked token injected
+  back into `localStorage` was rejected and cleared.
 - Aligned current renderer navigation, page permissions, dashboard, menu, bills and analytics with
   the current API. Added menu category/item CRUD, bill creation/list/detail/cancellation, and
   receipt/A4 print actions.

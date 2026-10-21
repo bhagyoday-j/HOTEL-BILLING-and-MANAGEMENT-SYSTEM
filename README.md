@@ -47,7 +47,7 @@ Electron main
   └─ typed bridge: window.api.*
        ↓
 React renderer (Vite; UI only, no Node/fs/db access)
-  ├─ Zustand auth state (sessionStorage in browser)
+  ├─ Zustand auth state (localStorage; sessions persisted in SQLite)
   └─ HTTP http://127.0.0.1:3847 in browser / IPC in Electron
        ↓
 Express local API
@@ -129,6 +129,10 @@ in the installed app.
 
 The seed also normalizes accounts to the two-role model: any legacy account (reception, cashier,
 etc.) is reassigned to `MANAGER` rather than deleted, so old logins may still work as managers.
+
+Signing in is remembered until you sign out: the session is stored in SQLite and the app keeps its
+session token locally, so closing or restarting the application does not require signing in again.
+Password changes and deactivating an account end the affected session immediately.
 
 After setup the app opens the activation screen: enter the activation key to start the one-year
 subscription (see below). Until then, business modules stay blocked by the local API.

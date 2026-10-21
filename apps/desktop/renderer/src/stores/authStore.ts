@@ -25,7 +25,10 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'hotel-billing-auth',
-      storage: createJSONStorage(() => sessionStorage),
+      // localStorage (not sessionStorage): signing in survives reloads and app
+      // restarts, and the user stays signed in until they log out. The server
+      // keeps the matching session in SQLite.
+      storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         user: state.user,
         token: state.token,
