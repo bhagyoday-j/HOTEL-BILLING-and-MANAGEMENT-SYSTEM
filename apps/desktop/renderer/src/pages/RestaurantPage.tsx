@@ -14,6 +14,7 @@ import { confirmDialog } from '@/stores/confirmStore';
 import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
 import { cn, formatCurrency } from '@/utils/cn';
+import { buildDiscount, validateDiscount, type DiscountMode } from '@/utils/discount';
 
 interface CartLine {
   item: MenuItem;
@@ -26,6 +27,8 @@ export function RestaurantPage() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [customerMobile, setCustomerMobile] = useState('');
+  const [discountMode, setDiscountMode] = useState<DiscountMode>('none');
+  const [discountValue, setDiscountValue] = useState('');
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
@@ -100,6 +103,7 @@ export function RestaurantPage() {
           menuItemId: item.id,
           quantity: String(quantity),
         })),
+        ...buildDiscount(discountMode, discountValue),
       });
       if (!res.success) throw new Error(res.error.message);
       return res.data;
@@ -109,6 +113,8 @@ export function RestaurantPage() {
       setCart([]);
       setCustomerName('');
       setCustomerMobile('');
+      setDiscountMode('none');
+      setDiscountValue('');
       setCreatedBillNumber(bill.billNumber);
       toast.success('Bill created', bill.billNumber);
       void queryClient.invalidateQueries({ queryKey: ['bills'] });
@@ -143,6 +149,7 @@ export function RestaurantPage() {
   const items = menuQuery.data?.items ?? [];
   const categories = menuQuery.data?.categories ?? [];
   const selectedCount = useMemo(() => cart.reduce((sum, line) => sum + line.quantity, 0), [cart]);
+  const discountError = validateDiscount(discountMode, discountValue);
 
   const addItem = (item: MenuItem) => {
     setCart((current) => {
@@ -287,6 +294,38 @@ export function RestaurantPage() {
               <Label htmlFor="bill-customer-mobile">Mobile</Label>
               <Input id="bill-customer-mobile" value={customerMobile} onChange={(event) => setCustomerMobile(event.target.value)} placeholder="Optional" />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bill-discount-type">Discount</Label>
+              <div className="flex gap-2">
+                <Select
+                  id="bill-discount-type"
+                  className="w-32"
+                  value={discountMode}
+                  onChange={(event) => {
+                    const mode = event.target.value as DiscountMode;
+                    setDiscountMode(mode);
+                    if (mode === 'none') setDiscountValue('');
+                  }}
+                >
+                  <option value="none">None</option>
+                  <option value="amount">Amount ₹</option>
+                  <option value="percent">Percent %</option>
+                </Select>
+                {discountMode !== 'none' && (
+                  <Input
+                    id="bill-discount"
+                    type="number"
+                    min="0"
+                    max={discountMode === 'percent' ? '100' : undefined}
+                    step="0.01"
+                    placeholder={discountMode === 'percent' ? '0–100' : '0.00'}
+                    value={discountValue}
+                    onChange={(event) => setDiscountValue(event.target.value)}
+                  />
+                )}
+              </div>
+              {discountError && <p className="text-xs text-danger">{discountError}</p>}
+            </div>
             {lookupEnabled && (
               <div
                 className={cn(
@@ -335,10 +374,12 @@ export function RestaurantPage() {
             ))}
           </div>
           <div className="border-t border-border p-4">
-            <p className="mb-3 text-xs text-ink-muted">The server calculates tax and totals from current menu prices. Bills are finalized as paid.</p>
+            <p className="mb-3 text-xs text-ink-muted">The server calculates tax and totals from current menu prices and applies any discount before tax. Bills are finalized as paid.</p>
             <Button
               className="w-full"
-              disabled={!canCreateBill || cart.length === 0 || createBillMutation.isPending}
+              disabled={
+                !canCreateBill || cart.length === 0 || Boolean(discountError) || createBillMutation.isPending
+              }
               onClick={() => createBillMutation.mutate()}
             >
               {createBillMutation.isPending ? 'Creating bill…' : 'Create bill'}

@@ -7,6 +7,11 @@ import { AuditService } from './auditService';
 import { BillService } from './billService';
 import { SettingsService } from './settingsService';
 import { nextNumber } from './sequenceService';
+import {
+  assertDiscountWithinSubtotal,
+  resolveOrderDiscount,
+  type OrderDiscount,
+} from '../utils/discount';
 
 /** A table's running bill lives on an OPEN RestaurantOrder until checkout. */
 const ORDER_OPEN = 'OPEN';
@@ -52,6 +57,10 @@ export interface CheckoutTableInput {
   customerName?: string;
   customerMobile?: string;
   notes?: string;
+  /** Absolute discount on the table bill (exclusive with discountPercent). */
+  discountAmount?: string;
+  /** Percentage discount on the table bill (exclusive with discountAmount). */
+  discountPercent?: string;
 }
 
 const TABLE_WITH_OPEN_ORDER = {
@@ -88,9 +97,11 @@ interface OrderLineSnapshot {
 export function computeOrderTotals(
   lines: OrderLineSnapshot[],
   useIgst: boolean,
+  discount: OrderDiscount = {},
 ): MoneyBreakdown {
   return calculateBilling({
     useIgst,
+    ...discount,
     items: lines.map((line) => ({
       quantity: line.quantity.toString(),
       unitPrice: line.unitPrice.toString(),
@@ -700,7 +711,17 @@ export class TableService {
         throw new AppError('EMPTY_BILL', 'Add at least one item before generating the bill', 400);
       }
 
-      const breakdown = computeOrderTotals(order.items, igst);
+      // The discount belongs to the final bill, not the running order, so it is
+      // validated against the pre-discount subtotal and applied once at checkout.
+      const discount = resolveOrderDiscount({
+        discountAmount: input.discountAmount,
+        discountPercent: input.discountPercent,
+      });
+      assertDiscountWithinSubtotal(
+        discount,
+        computeOrderTotals(order.items, igst).subtotal,
+      );
+      const breakdown = computeOrderTotals(order.items, igst, discount);
       const billNumber = await nextNumber(tx, 'INV', {
         prefixOverride: settings.invoicePrefix,
       });

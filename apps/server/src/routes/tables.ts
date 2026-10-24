@@ -55,6 +55,10 @@ const checkoutSchema = z.object({
   customerName: z.string().trim().max(120).optional().or(z.literal('')),
   customerMobile: z.string().trim().max(20).optional().or(z.literal('')),
   notes: z.string().max(500).optional().or(z.literal('')),
+  // One of these may be sent; the service validates the value and applies it
+  // through the shared billing engine.
+  discountAmount: z.string().max(20).optional().or(z.literal('')),
+  discountPercent: z.string().max(20).optional().or(z.literal('')),
 });
 
 tablesRouter.get(

@@ -92,6 +92,48 @@ describe('renderInvoiceHtml', () => {
     expect(html).toContain('500.00');
   });
 
+  it('hides zero discount and total-tax fields on a plain bill', () => {
+    const html = renderInvoiceHtml(
+      sample({
+        discountAmount: '0',
+        cgstAmount: '0',
+        sgstAmount: '0',
+        igstAmount: '0',
+        totalTax: '0',
+        grandTotal: '500.00',
+      }),
+      'A4',
+    );
+    expect(html).not.toContain('Discount');
+    expect(html).not.toContain('Total Tax');
+    expect(html).not.toContain('Disc.');
+    expect(html).toContain('Grand Total');
+  });
+
+  it('shows the discount field and per-line discount column when a discount applies', () => {
+    const html = renderInvoiceHtml(
+      sample({
+        items: [
+          {
+            description: 'Paneer Tikka',
+            quantity: '2',
+            unitPrice: '250.00',
+            discountAmount: '50.00',
+            lineTotal: '450.00',
+          },
+        ],
+        subtotal: '450.00',
+        discountAmount: '50.00',
+        taxableAmount: '450.00',
+        grandTotal: '540.00',
+      }),
+      'A4',
+    );
+    expect(html).toContain('Discount');
+    expect(html).toContain('Disc.');
+    expect(html).toContain('50.00');
+  });
+
   it('shows the IGST row for inter-state bills', () => {
     const html = renderInvoiceHtml(
       sample({ igstAmount: '90.00', cgstAmount: '0', sgstAmount: '0' }),

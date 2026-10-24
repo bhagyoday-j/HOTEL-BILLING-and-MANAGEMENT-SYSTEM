@@ -24,6 +24,10 @@ const createBillSchema = z.object({
     )
     .min(1, 'Add at least one item'),
   notes: z.string().max(500).optional().or(z.literal('')),
+  // One of these may be sent; the service validates the value and applies it
+  // through the shared billing engine.
+  discountAmount: z.string().max(20).optional().or(z.literal('')),
+  discountPercent: z.string().max(20).optional().or(z.literal('')),
 });
 
 billsRouter.get(

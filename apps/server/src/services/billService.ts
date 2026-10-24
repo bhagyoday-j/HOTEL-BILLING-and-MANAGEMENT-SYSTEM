@@ -5,6 +5,7 @@ import { AppError } from '../utils/errors';
 import { AuditService } from './auditService';
 import { SettingsService } from './settingsService';
 import { nextNumber } from './sequenceService';
+import { assertDiscountWithinSubtotal, resolveOrderDiscount } from '../utils/discount';
 
 export interface BillLineInput {
   menuItemId: string;
@@ -19,6 +20,10 @@ export interface CreateBillInput {
   customerMobile?: string;
   items: BillLineInput[];
   notes?: string;
+  /** Absolute discount on the bill subtotal (exclusive with discountPercent). */
+  discountAmount?: string;
+  /** Percentage discount on the bill subtotal (exclusive with discountAmount). */
+  discountPercent?: string;
 }
 
 const VALID_STATUSES = ['DRAFT', 'ISSUED', 'PAID', 'PARTIALLY_PAID', 'CANCELLED', 'REFUNDED'];
@@ -221,7 +226,13 @@ export class BillService {
           });
         }
 
-        const breakdown = calculateBilling({ items: lines.map((l) => l.billingLine), useIgst });
+        const billingLines = lines.map((l) => l.billingLine);
+        const discount = resolveOrderDiscount({
+          discountAmount: input.discountAmount,
+          discountPercent: input.discountPercent,
+        });
+        assertDiscountWithinSubtotal(discount, calculateBilling({ items: billingLines, useIgst }).subtotal);
+        const breakdown = calculateBilling({ items: billingLines, useIgst, ...discount });
 
         const billNumber = await nextNumber(tx, 'INV', {
           prefixOverride: settings.invoicePrefix,
@@ -269,7 +280,11 @@ export class BillService {
         entityType: 'Invoice',
         entityId: bill.id,
         entityRef: bill.invoiceNumber,
-        details: { grandTotal: bill.grandTotal.toString(), items: input.items.length },
+        details: {
+          grandTotal: bill.grandTotal.toString(),
+          discount: bill.discountAmount.toString(),
+          items: input.items.length,
+        },
       });
 
       return this.get(bill.id);

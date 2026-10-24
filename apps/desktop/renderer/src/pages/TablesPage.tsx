@@ -34,6 +34,7 @@ import { confirmDialog } from '@/stores/confirmStore';
 import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
 import { cn, formatCurrency } from '@/utils/cn';
+import { buildDiscount, validateDiscount, type DiscountMode } from '@/utils/discount';
 
 export function TablesPage() {
   const queryClient = useQueryClient();
@@ -201,6 +202,8 @@ export function TablesPage() {
         customerName: values.customerName.trim() || undefined,
         customerMobile: values.customerMobile.trim() || undefined,
         notes: values.notes.trim() || undefined,
+        discountAmount: values.discountAmount,
+        discountPercent: values.discountPercent,
       });
       if (!res.success) throw new Error(res.error.message);
       return res.data;
@@ -929,6 +932,8 @@ interface CheckoutFormValues {
   customerName: string;
   customerMobile: string;
   notes: string;
+  discountAmount?: string;
+  discountPercent?: string;
 }
 
 function CheckoutForm({
@@ -945,8 +950,11 @@ function CheckoutForm({
   const [customerName, setCustomerName] = useState('');
   const [customerMobile, setCustomerMobile] = useState('');
   const [notes, setNotes] = useState('');
+  const [discountMode, setDiscountMode] = useState<DiscountMode>('none');
+  const [discountValue, setDiscountValue] = useState('');
   const requestId = useRef<string | null>(null);
   const bill = table.openBill;
+  const discountError = validateDiscount(discountMode, discountValue);
   const summary = useMemo(
     () => (bill ? { items: bill.itemCount, total: bill.total } : { items: 0, total: '0.00' }),
     [bill],
@@ -962,6 +970,7 @@ function CheckoutForm({
           customerName,
           customerMobile,
           notes,
+          ...buildDiscount(discountMode, discountValue),
           clientRequestId: requestId.current,
         });
       }}
@@ -972,7 +981,7 @@ function CheckoutForm({
           <span>{summary.items}</span>
         </div>
         <div className="mt-1 flex justify-between font-semibold text-ink">
-          <span>Total</span>
+          <span>{discountMode === 'none' ? 'Total' : 'Total before discount'}</span>
           <span>{formatCurrency(summary.total)}</span>
         </div>
       </div>
@@ -1006,15 +1015,50 @@ function CheckoutForm({
           onChange={(event) => setNotes(event.target.value)}
         />
       </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="checkout-discount-type">Discount</Label>
+        <div className="flex gap-2">
+          <Select
+            id="checkout-discount-type"
+            className="w-32"
+            value={discountMode}
+            onChange={(event) => {
+              const mode = event.target.value as DiscountMode;
+              setDiscountMode(mode);
+              if (mode === 'none') setDiscountValue('');
+            }}
+          >
+            <option value="none">None</option>
+            <option value="amount">Amount ₹</option>
+            <option value="percent">Percent %</option>
+          </Select>
+          {discountMode !== 'none' && (
+            <Input
+              id="checkout-discount"
+              type="number"
+              min="0"
+              max={discountMode === 'percent' ? '100' : undefined}
+              step="0.01"
+              placeholder={discountMode === 'percent' ? '0–100' : '0.00'}
+              value={discountValue}
+              onChange={(event) => setDiscountValue(event.target.value)}
+            />
+          )}
+        </div>
+        {discountError && <p className="text-xs text-danger">{discountError}</p>}
+      </div>
       <p className="text-xs text-ink-muted">
-        The server recalculates tax and totals from the ordered item snapshots and creates this
-        table’s own paid bill.
+        The server recalculates tax and totals from the ordered item snapshots, applies any
+        discount before tax, and creates this table’s own paid bill.
       </p>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" disabled={saving || !bill || bill.items.length === 0}>
+        <Button
+          type="submit"
+          disabled={saving || !bill || bill.items.length === 0 || Boolean(discountError)}
+        >
           {saving ? 'Generating…' : 'Generate bill'}
         </Button>
       </div>

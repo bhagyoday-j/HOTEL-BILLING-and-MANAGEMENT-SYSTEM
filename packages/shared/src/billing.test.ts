@@ -28,6 +28,28 @@ describe('calculateBilling', () => {
     expect(result.grandTotal).toBe('99.99');
   });
 
+  it('applies an order-level discount and scales tax proportionally', () => {
+    const result = calculateBilling({
+      items: [{ quantity: 1, unitPrice: '100', cgstRate: '9', sgstRate: '9' }],
+      orderDiscountAmount: '10',
+    });
+    expect(result.itemDiscount).toBe('10.00');
+    expect(result.taxableAmount).toBe('90.00');
+    expect(result.cgst).toBe('8.10');
+    expect(result.sgst).toBe('8.10');
+    expect(result.grandTotal).toBe('106.20');
+  });
+
+  it('applies a percentage discount', () => {
+    const result = calculateBilling({
+      items: [{ quantity: 1, unitPrice: '200', cgstRate: '0', sgstRate: '0' }],
+      orderDiscountPercent: '10',
+    });
+    expect(result.itemDiscount).toBe('20.00');
+    expect(result.taxableAmount).toBe('180.00');
+    expect(result.grandTotal).toBe('180.00');
+  });
+
   it('applies item discounts before tax', () => {
     const result = calculateBilling({
       items: [

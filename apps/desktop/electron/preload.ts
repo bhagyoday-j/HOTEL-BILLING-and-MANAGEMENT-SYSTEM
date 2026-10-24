@@ -88,6 +88,7 @@ const api = {
   },
   print: {
     getPrinters: () => ipcRenderer.invoke('print:getPrinters'),
+    render: (payload: unknown) => ipcRenderer.invoke('print:render', payload),
     invoice: (payload: unknown) => ipcRenderer.invoke('print:invoice', payload),
     test: (printerName?: string) => ipcRenderer.invoke('print:test', { printerName }),
     saveCopy: (payload: unknown) => ipcRenderer.invoke('print:savePdf', payload),

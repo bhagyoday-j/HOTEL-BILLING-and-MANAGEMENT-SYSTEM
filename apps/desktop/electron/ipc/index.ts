@@ -220,6 +220,22 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
     }
   });
 
+  // Renders the document for the in-app preview. Pure formatting: no printer is
+  // touched, so it is not subscription-gated (printing itself remains gated).
+  handle('print:render', async (_event, payload: { data: unknown; format: string }) => {
+    try {
+      const data = payload.data as Parameters<typeof printerService.renderPreview>[0];
+      const html = printerService.renderPreview(
+        data,
+        payload.format as 'A4' | 'THERMAL_80' | 'THERMAL_58',
+      );
+      return ok({ html });
+    } catch (err) {
+      logger.error({ err }, 'print:render failed');
+      return fail('PRINT_ERROR', 'Could not build the print preview');
+    }
+  });
+
   handle('print:invoice', async (_event, payload: { data: unknown; format: string; printerName?: string; silent?: boolean; copies?: number }) => {
     if (!(await hasActiveSubscription())) return SUBSCRIPTION_INACTIVE();
     try {

@@ -274,6 +274,10 @@ export interface CreateBillInput {
   customerMobile?: string;
   items: BillLineInput[];
   notes?: string;
+  /** Absolute discount on the bill, exclusive with discountPercent. */
+  discountAmount?: string;
+  /** Percentage discount on the bill, exclusive with discountAmount. */
+  discountPercent?: string;
 }
 
 export interface DashboardSummary {
@@ -545,6 +549,8 @@ export const api = {
         customerName?: string;
         customerMobile?: string;
         notes?: string;
+        discountAmount?: string;
+        discountPercent?: string;
       },
     ) =>
       viaBridge<BillDetail>(
@@ -688,6 +694,9 @@ export const api = {
         undefined,
       ),
     invoice: (payload: unknown) => viaBridge(() => bridge()!.print.invoice(payload), undefined),
+    /** The exact document HTML for the in-app print preview. */
+    render: (payload: unknown) =>
+      viaBridge<{ html: string }>(() => bridge()!.print.render(payload), undefined),
     test: (printerName?: string) =>
       viaBridge(() => bridge()!.print.test(printerName), undefined),
     saveCopy: (payload: unknown) =>

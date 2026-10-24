@@ -60,6 +60,14 @@ function formatMoney(value: string | number): string {
 export function renderInvoiceHtml(data: InvoiceTemplateData, format: 'A4' | 'THERMAL_80' | 'THERMAL_58'): string {
   const thermal = format !== 'A4';
   const width = format === 'THERMAL_58' ? '58mm' : '80mm';
+  // Zero-value rows are noise on a customer bill: a plain bill has no discount
+  // and, when no item is taxed, no tax. Hide those fields instead of printing
+  // "Discount 0.00 / Total Tax 0.00".
+  const showLineDiscount = data.items.some((i) => Number(i.discountAmount) !== 0);
+  const showDiscount = Number(data.discountAmount) !== 0 || showLineDiscount;
+  const showTax = Number(data.totalTax) !== 0;
+  const columnCount = showLineDiscount ? 6 : 5;
+
   const rows = data.items
     .map(
       (i, idx) => `
@@ -68,7 +76,7 @@ export function renderInvoiceHtml(data: InvoiceTemplateData, format: 'A4' | 'THE
         <td>${esc(i.description)}</td>
         <td class="num">${esc(i.quantity)}</td>
         <td class="num">${formatMoney(i.unitPrice)}</td>
-        <td class="num">${formatMoney(i.discountAmount)}</td>
+        ${showLineDiscount ? `<td class="num">${formatMoney(i.discountAmount)}</td>` : ''}
         <td class="num">${formatMoney(i.lineTotal)}</td>
       </tr>`,
     )
@@ -78,7 +86,7 @@ export function renderInvoiceHtml(data: InvoiceTemplateData, format: 'A4' | 'THE
     .map(
       (p) => `
       <tr>
-        <td colspan="5">${esc(p.method)}${p.paymentNumber ? ` (${esc(p.paymentNumber)})` : ''}</td>
+        <td colspan="${columnCount - 1}">${esc(p.method)}${p.paymentNumber ? ` (${esc(p.paymentNumber)})` : ''}</td>
         <td class="num">${formatMoney(p.amount)}</td>
       </tr>`,
     )
@@ -147,7 +155,7 @@ export function renderInvoiceHtml(data: InvoiceTemplateData, format: 'A4' | 'THE
         <th>Description</th>
         <th class="num" style="width:10%">Qty</th>
         <th class="num" style="width:14%">Rate</th>
-        <th class="num" style="width:13%">Disc.</th>
+        ${showLineDiscount ? '<th class="num" style="width:13%">Disc.</th>' : ''}
         <th class="num" style="width:15%">Amount</th>
       </tr>
     </thead>
@@ -159,12 +167,12 @@ export function renderInvoiceHtml(data: InvoiceTemplateData, format: 'A4' | 'THE
 
   <table class="totals">
     <tr><td>Subtotal</td><td class="num">${formatMoney(data.subtotal)}</td></tr>
-    <tr><td>Discount</td><td class="num">− ${formatMoney(data.discountAmount)}</td></tr>
+    ${showDiscount ? `<tr><td>Discount</td><td class="num">− ${formatMoney(data.discountAmount)}</td></tr>` : ''}
     <tr><td>Taxable Amount</td><td class="num">${formatMoney(data.taxableAmount)}</td></tr>
     ${Number(data.cgstAmount) > 0 ? `<tr><td>CGST</td><td class="num">${formatMoney(data.cgstAmount)}</td></tr>` : ''}
     ${Number(data.sgstAmount) > 0 ? `<tr><td>SGST</td><td class="num">${formatMoney(data.sgstAmount)}</td></tr>` : ''}
     ${Number(data.igstAmount) > 0 ? `<tr><td>IGST</td><td class="num">${formatMoney(data.igstAmount)}</td></tr>` : ''}
-    <tr><td>Total Tax</td><td class="num">${formatMoney(data.totalTax)}</td></tr>
+    ${showTax ? `<tr><td>Total Tax</td><td class="num">${formatMoney(data.totalTax)}</td></tr>` : ''}
     ${Number(data.roundingAmount) !== 0 ? `<tr><td>Rounding</td><td class="num">${formatMoney(data.roundingAmount)}</td></tr>` : ''}
     <tr class="grand"><td>Grand Total</td><td class="num">₹ ${formatMoney(data.grandTotal)}</td></tr>
     <tr><td>Paid</td><td class="num">${formatMoney(data.paidAmount)}</td></tr>

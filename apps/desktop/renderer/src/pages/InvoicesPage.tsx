@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { PrintPreviewDialog, type PrintFormat } from '@/components/PrintPreviewDialog';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState, ErrorState, Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { toast } from '@/stores/toastStore';
@@ -107,10 +108,14 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
   // cancellation and left the bill (and revenue) unchanged in the desktop app.
   const [cancelFormOpen, setCancelFormOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  // Print now opens an in-app preview first: Electron's native print dialog has no
+  // preview, so the document is shown before the job is sent to the printer.
+  const [previewFormat, setPreviewFormat] = useState<PrintFormat | null>(null);
 
   useEffect(() => {
     setCancelFormOpen(false);
     setCancelReason('');
+    setPreviewFormat(null);
   }, [id]);
 
   const billQuery = useQuery({
@@ -150,10 +155,9 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
   });
   const bill = billQuery.data;
 
-  const print = async (format: 'A4' | 'THERMAL_80') => {
-    if (!bill || !hotelQuery.data) return;
-    const result = await api.print.invoice({
-      data: {
+  // The exact document shown in the preview and sent to the printer.
+  const invoiceData = bill && hotelQuery.data
+    ? {
         invoiceNumber: bill.billNumber,
         invoiceDate: bill.date,
         status: bill.status,
@@ -188,15 +192,8 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
         paidAmount: bill.status === 'PAID' ? bill.grandTotal : '0',
         dueAmount: bill.status === 'PAID' ? '0' : bill.grandTotal,
         terms: bill.terms,
-      },
-      format,
-    });
-    if (!result.success) {
-      toast.error('Print failed', result.error.message);
-      return;
-    }
-    toast.success(format === 'A4' ? 'Invoice sent to printer' : 'Receipt sent to printer');
-  };
+      }
+    : null;
 
   return (
     <Dialog open={id !== null} onOpenChange={(open) => !open && onClose()}>
@@ -235,7 +232,9 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
               </Table>
               <div className="ml-auto max-w-xs space-y-1 text-sm">
                 <Amount label="Subtotal" value={bill.subtotal} />
-                <Amount label="Discount" value={bill.discountAmount} />
+                {Number(bill.discountAmount) !== 0 && (
+                  <Amount label="Discount" value={bill.discountAmount} />
+                )}
                 <Amount label="Tax" value={bill.totalTax} />
                 <Amount label="Grand total" value={bill.grandTotal} strong />
               </div>
@@ -251,11 +250,11 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
                   </Button>
                 ) : <span />}
                 <div className="flex gap-2">
-                  <Button variant="outline" disabled={!hotelQuery.data || hotelQuery.isLoading} onClick={() => void print('THERMAL_80')}>
-                    <Printer className="h-4 w-4" /> Print receipt (80mm)
+                  <Button variant="outline" disabled={!invoiceData} onClick={() => setPreviewFormat('THERMAL_80')}>
+                    <Printer className="h-4 w-4" /> Preview receipt (80mm)
                   </Button>
-                  <Button variant="outline" disabled={!hotelQuery.data || hotelQuery.isLoading} onClick={() => void print('A4')}>
-                    <Printer className="h-4 w-4" /> Print A4
+                  <Button variant="outline" disabled={!invoiceData} onClick={() => setPreviewFormat('A4')}>
+                    <Printer className="h-4 w-4" /> Preview A4 invoice
                   </Button>
                 </div>
               </div>
@@ -303,6 +302,15 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
             </div>
           ) : null}
         </DialogContent>
+      )}
+
+      {invoiceData && previewFormat && bill && (
+        <PrintPreviewDialog
+          title={`Print bill ${bill.billNumber}`}
+          data={invoiceData}
+          initialFormat={previewFormat}
+          onClose={() => setPreviewFormat(null)}
+        />
       )}
     </Dialog>
   );

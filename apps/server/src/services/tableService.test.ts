@@ -57,6 +57,32 @@ describe('computeOrderTotals', () => {
     expect(totals.grandTotal).toBe('193.20');
   });
 
+  it('applies an absolute discount before tax', () => {
+    const totals = computeOrderTotals([line('2', '100.00', '5')], false, {
+      orderDiscountAmount: '50',
+    });
+
+    // Gross 200 − 50 = 150 taxable; the 5% rate splits into 2.5% CGST/SGST.
+    expect(totals.itemDiscount).toBe('50.00');
+    expect(totals.subtotal).toBe('150.00');
+    expect(totals.cgst).toBe('3.75');
+    expect(totals.sgst).toBe('3.75');
+    expect(totals.totalTax).toBe('7.50');
+    expect(totals.grandTotal).toBe('157.50');
+  });
+
+  it('applies a percentage discount before tax', () => {
+    const totals = computeOrderTotals([line('2', '100.00', '5')], false, {
+      orderDiscountPercent: '10',
+    });
+
+    // 10% off 200 = 20; tax re-scaled to 4.50 + 4.50 (2.5% each).
+    expect(totals.itemDiscount).toBe('20.00');
+    expect(totals.subtotal).toBe('180.00');
+    expect(totals.totalTax).toBe('9.00');
+    expect(totals.grandTotal).toBe('189.00');
+  });
+
   it('supports fractional whole-number quantities without float drift', () => {
     const totals = computeOrderTotals([line('3', '0.10', '0')], false);
     expect(totals.subtotal).toBe('0.30');

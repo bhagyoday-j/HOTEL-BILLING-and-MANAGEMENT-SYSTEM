@@ -74,6 +74,7 @@ export type ElectronApi = {
   };
   print: {
     getPrinters: () => Promise<unknown>;
+    render: (payload: unknown) => Promise<unknown>;
     invoice: (payload: unknown) => Promise<unknown>;
     test: (printerName?: string) => Promise<unknown>;
     saveCopy: (payload: unknown) => Promise<unknown>;
