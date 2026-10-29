@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -20,6 +21,8 @@ import { CommandMenu } from '@/components/CommandMenu';
 import { ConfirmDialog } from '@/components/ui/confirmDialog';
 import { Toaster } from '@/components/ui/toaster';
 import { useLicenseStatus } from '@/hooks/useLicenseStatus';
+import { useUpdateStatus } from '@/hooks/useUpdateStatus';
+import { toast } from '@/stores/toastStore';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -38,6 +41,22 @@ export function AppShell() {
   const navigate = useNavigate();
 
   const licenseQuery = useLicenseStatus();
+  const updateStatus = useUpdateStatus();
+  const notifiedUpdate = useRef<string | null>(null);
+  const canManageSettings = Boolean(user?.permissions.includes('SETTINGS_MANAGE'));
+
+  // Tell the owner once per downloaded version that a restart will install it.
+  useEffect(() => {
+    if (!canManageSettings || updateStatus?.phase !== 'downloaded') return;
+    const version = updateStatus.availableVersion;
+    if (!version || notifiedUpdate.current === version) return;
+    notifiedUpdate.current = version;
+    toast.info(
+      'Update ready',
+      `Version ${version} is downloaded. Restart from Settings → Application updates to install it.`,
+    );
+  }, [canManageSettings, updateStatus]);
+
   const hotelQuery = useQuery({
     queryKey: ['hotel'],
     queryFn: async () => {

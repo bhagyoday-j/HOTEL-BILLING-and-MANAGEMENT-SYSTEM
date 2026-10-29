@@ -1,7 +1,15 @@
+import type { UpdateStatus } from '@hotel-billing/shared';
+
 export type ElectronApi = {
   app: {
     getVersion: () => Promise<string>;
     getPaths: () => Promise<Record<string, string>>;
+  };
+  updates: {
+    getStatus: () => Promise<unknown>;
+    check: () => Promise<unknown>;
+    install: () => Promise<unknown>;
+    onStatus: (callback: (status: UpdateStatus) => void) => () => void;
   };
   auth: {
     login: (username: string, password: string) => Promise<unknown>;
@@ -45,6 +53,7 @@ export type ElectronApi = {
     list: (query?: Record<string, unknown>) => Promise<unknown>;
     get: (id: string) => Promise<unknown>;
     create: (data: unknown) => Promise<unknown>;
+    update: (id: string, data: unknown) => Promise<unknown>;
     cancel: (id: string, reason: string) => Promise<unknown>;
   };
   customers: {

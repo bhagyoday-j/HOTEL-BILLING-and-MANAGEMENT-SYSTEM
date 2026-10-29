@@ -182,6 +182,26 @@ The server/IPC contains hotel, settings, and backup operations, and the renderer
 Manager-accounts pages implement them. Settings covers the hotel profile, billing/tax defaults and
 the backup schedule; its backups panel creates and restores local copies in the desktop app.
 
+### In-app updates (GitHub Releases)
+
+- `electron-updater` (dependency) reads the feed electron-builder writes from the `publish` block
+  in `electron-builder.yml`: GitHub Releases of this **public** repository. No token is shipped in
+  the app; a private repository would require an update proxy instead.
+- The installed Windows app checks 5 seconds after startup on a timer (never blocking startup) and
+  downloads an available NSIS update in the background. `autoInstallOnAppQuit` is false: the update
+  is installed only when the owner clicks **Settings → Application updates → Restart and install**,
+  which stops the local API first, runs the installer silently and relaunches.
+- Status/check/install go through IPC channels `updates:status`, `updates:check`, `updates:install`;
+  the shared types are in `packages/shared/src/update.ts` and the reducer is unit-tested.
+- A release is produced only by `.github/workflows/release.yml` from tag `vX.Y.Z` (or a manual run
+  of an existing tag). The workflow verifies the tag equals `package.json` version, runs the checks,
+  and publishes a **draft** with the workflow `GITHUB_TOKEN` (`contents: write` only). Publish the
+  draft manually after smoke-testing.
+- Local `npm run installer` uses `--publish never` and cannot create a release.
+- The AppData database is never touched by an update. Note that the startup migration runner applies
+  statements without a per-migration transaction, so a schema-changing release needs a backup and a
+  smoke test; see `docs/updates.md`.
+
 ## Current API surface
 
 Base URL: `http://127.0.0.1:3847`. Protected HTTP routes use `Authorization: Bearer <token>`.

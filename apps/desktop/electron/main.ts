@@ -3,8 +3,9 @@ import path from 'node:path';
 import { ensureAppDirectories, getAppPaths } from './database/paths';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
 import { logger } from './security/logger';
-import { startServer, stopServer } from './server/serverProcess';
+import { startServer, stopServer, stopServerAndWait } from './server/serverProcess';
 import { startBackupScheduler, stopBackupScheduler, backupOnCloseIfConfigured } from './backup/backupScheduler';
+import { initUpdateService, isUpdateInstallInProgress } from './updater/updateService';
 import { APP_NAME } from '@hotel-billing/shared';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -102,6 +103,10 @@ async function bootstrap(): Promise<void> {
   // from appearing.
   createMainWindow();
 
+  // Update checks run independently of startup: this schedules a delayed check
+  // and returns immediately, so a slow or offline network never delays the UI.
+  initUpdateService();
+
   await startBackupScheduler();
 
   // Production: spawn the local API server as a child process
@@ -143,8 +148,12 @@ let quitting = false;
 app.on('before-quit', (event) => {
   if (quitting) return;
   quitting = true;
-  // Fire on-close backup without blocking quit for more than a few seconds
-  void backupOnCloseIfConfigured()
+  const installingUpdate = isUpdateInstallInProgress();
+  // Skip the on-close backup while an installer is taking over: the database
+  // must not be copied mid-update. Stop the local API and wait for it to exit so
+  // the installer replaces files only after the server has released them.
+  // Otherwise fire the backup without blocking quit for more than a few seconds.
+  void (installingUpdate ? stopServerAndWait(5_000) : backupOnCloseIfConfigured())
     .catch(() => undefined)
     .finally(() => {
       stopBackupScheduler();

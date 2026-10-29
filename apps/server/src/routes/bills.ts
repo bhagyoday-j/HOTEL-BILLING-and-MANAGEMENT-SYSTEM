@@ -30,6 +30,26 @@ const createBillSchema = z.object({
   discountPercent: z.string().max(20).optional().or(z.literal('')),
 });
 
+const updateBillSchema = z.object({
+  customerName: z.string().trim().max(120).optional().or(z.literal('')),
+  customerMobile: z.string().trim().max(20).optional().or(z.literal('')),
+  items: z
+    .array(
+      z.object({
+        id: z.string().min(1).optional(),
+        menuItemId: z.string().min(1).optional(),
+        quantity: z.string().regex(/^[1-9]\d{0,2}$/),
+      }).refine((item) => Boolean(item.id) !== Boolean(item.menuItemId), {
+        message: 'Specify exactly one bill item id or menu item id',
+      }),
+    )
+    .min(1, 'A bill must contain at least one item')
+    .max(200),
+  notes: z.string().max(500).optional().or(z.literal('')),
+  discountAmount: z.string().max(20).optional().or(z.literal('')),
+  discountPercent: z.string().max(20).optional().or(z.literal('')),
+});
+
 billsRouter.get(
   '/',
   requirePermission('BILL_VIEW'),
@@ -54,6 +74,15 @@ billsRouter.get(
   requirePermission('BILL_VIEW'),
   asyncHandler(async (req, res) => {
     res.json(ok(await billService.get(req.params.id)));
+  }),
+);
+
+billsRouter.put(
+  '/:id',
+  requirePermission('BILL_CREATE'),
+  asyncHandler(async (req, res) => {
+    const body = updateBillSchema.parse(req.body);
+    res.json(ok(await billService.update(req.params.id, body, req.auth!.userId)));
   }),
 );
 

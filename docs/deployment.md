@@ -7,7 +7,8 @@ npm run installer
 ```
 
 This runs `npm run build` (compiles `packages/shared`, `apps/server`, the renderer and the Electron
-TypeScript) and then electron-builder.
+TypeScript) and then electron-builder with `--publish never` — a local build never creates a GitHub
+release.
 
 Artifact: `release/HotelBillingSetup.exe` (Windows x64 NSIS)
 
@@ -48,6 +49,22 @@ extraction needs symlink privileges — Windows Developer Mode or an elevated sh
 
 If a database is ever provisioned manually instead, `npm run db:migrate:deploy` still works: the
 startup runner writes Prisma-compatible rows into `_prisma_migrations`.
+
+## Releases and in-app updates
+
+The installed app checks GitHub Releases through electron-updater (see [Updates](updates.md)).
+Releases are built and published only by `.github/workflows/release.yml`, triggered by a version
+tag or a manual workflow run of an existing tag:
+
+1. Bump the version in `package.json` and `packages/shared/src/constants.ts`.
+2. Commit, tag `vX.Y.Z` (the tag must equal the package version), push the tag.
+3. The workflow builds on `windows-latest`, runs tests/typecheck/lint/build and uploads
+   `HotelBillingSetup.exe`, its blockmap and `latest.yml` to a **draft** release using the
+   workflow's `GITHUB_TOKEN` (`contents: write` only).
+4. Smoke-test the draft, then publish it on GitHub. Clients ignore drafts.
+
+Existing installations from before the updater was added need a one-time manual install of the
+updater-enabled build; after that, updates are delivered in place and keep AppData untouched.
 
 ## Production checklist
 

@@ -6,6 +6,18 @@ directories:
   output: release
   buildResources: build
 
+# In-app update feed. electron-builder writes this into resources/app-update.yml,
+# which electron-updater reads at runtime. Releases are public, so the app only
+# needs anonymous read access: never put a token in the packaged application.
+# Releases are created only by .github/workflows/release.yml, never by a local build.
+publish:
+  provider: github
+  owner: bhagyoday-j
+  repo: HOTEL-BILLING-and-MANAGEMENT-SYSTEM
+  # Keep a new release as a draft until it has been smoke-tested and published
+  # on GitHub; electron-updater only sees published releases.
+  releaseType: draft
+
 files:
   - apps/desktop/electron/dist/**/*
   - apps/desktop/renderer/dist/**/*

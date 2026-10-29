@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FolderOpen, HardDriveDownload, RotateCcw, Save } from 'lucide-react';
+import { APP_VERSION } from '@hotel-billing/shared';
+import {
+  DownloadCloud,
+  FolderOpen,
+  HardDriveDownload,
+  RefreshCw,
+  RotateCcw,
+  Save,
+} from 'lucide-react';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +20,7 @@ import { confirmDialog } from '@/stores/confirmStore';
 import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useLicenseStatus } from '@/hooks/useLicenseStatus';
+import { useUpdateStatus } from '@/hooks/useUpdateStatus';
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'] as const;
 const ROUNDING_MODES = [
@@ -196,6 +205,8 @@ export function SettingsPage() {
       {settingsQuery.isError && <ErrorState message={(settingsQuery.error as Error).message} />}
 
       <SubscriptionCard />
+
+      <UpdatesSection />
 
       <Card className="space-y-4">
         <div className="flex items-center justify-between gap-3">
@@ -481,6 +492,177 @@ export function SettingsPage() {
 
       <BackupsSection />
     </div>
+  );
+}
+
+const UPDATE_PHASE_LABELS: Record<string, string> = {
+  idle: 'Not checked yet',
+  checking: 'Checking…',
+  'up-to-date': 'Up to date',
+  available: 'Update available',
+  downloading: 'Downloading…',
+  downloaded: 'Ready to install',
+  installing: 'Restarting…',
+  error: 'Update check failed',
+  unsupported: 'Updates unavailable in this build',
+};
+
+function updateBadgeClass(phase: string | undefined): string {
+  if (phase === 'error') return 'border-danger/30 bg-danger/10 text-danger';
+  if (phase === 'downloaded' || phase === 'up-to-date') return 'border-success/30 bg-success/10 text-success';
+  if (phase === 'available' || phase === 'downloading' || phase === 'installing') {
+    return 'border-brass/30 bg-brass/10 text-brass';
+  }
+  return 'border-border bg-paper text-ink-muted';
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 MB';
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(1)} MB`;
+}
+
+/**
+ * In-app updates. The main process checks GitHub Releases in the background;
+ * this card reports the state and lets the user install a downloaded update
+ * with an explicit restart. Data under %APPDATA% is not touched by an update.
+ */
+function UpdatesSection() {
+  const status = useUpdateStatus();
+  const isDesktop = typeof window !== 'undefined' && Boolean(window.api);
+  const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+
+  const phase = status?.phase;
+  const busy = checking || phase === 'checking' || phase === 'downloading' || phase === 'installing';
+
+  const check = async (): Promise<void> => {
+    setChecking(true);
+    try {
+      const res = await api.updates.check();
+      if (!res.success) {
+        toast.error('Update check failed', res.error.message);
+      } else if (res.data.phase === 'up-to-date') {
+        toast.success('You are up to date', `Version ${res.data.currentVersion} is the latest version.`);
+      }
+    } catch (err) {
+      toast.error(
+        'Update check failed',
+        err instanceof Error ? err.message : 'The update service is not reachable.',
+      );
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const install = async (): Promise<void> => {
+    const confirmed = await confirmDialog({
+      title: 'Restart and install update',
+      message: `Version ${status?.availableVersion ?? ''} is ready. The application will close and reopen. Your database and backups stay in place.`,
+      confirmLabel: 'Restart and install',
+    });
+    if (!confirmed) return;
+
+    setInstalling(true);
+    const res = await api.updates.install();
+    if (!res.success) {
+      setInstalling(false);
+      toast.error('Update could not be installed', res.error.message);
+    }
+  };
+
+  return (
+    <Card className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <CardTitle>Application updates</CardTitle>
+        <span
+          className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${updateBadgeClass(phase)}`}
+        >
+          {UPDATE_PHASE_LABELS[phase ?? 'idle'] ?? 'Unknown'}
+        </span>
+      </div>
+
+      {!isDesktop ? (
+        <p className="rounded-lg border border-dashed border-border bg-paper px-4 py-3 text-sm text-ink-muted">
+          Update checks run in the installed desktop application. Open Settings there to check for
+          and install updates.
+        </p>
+      ) : status && !status.supported ? (
+        <p className="rounded-lg border border-dashed border-border bg-paper px-4 py-3 text-sm text-ink-muted">
+          Update checks are available in the installed Windows application. This build runs in
+          development mode and never contacts the update server.
+        </p>
+      ) : (
+        <>
+          <div className="grid gap-4 text-sm sm:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-ink-muted">Installed version</p>
+              <p className="mt-1 font-medium text-ink">
+                {status?.currentVersion ?? APP_VERSION}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-ink-muted">Available version</p>
+              <p className="mt-1 font-medium text-ink">{status?.availableVersion ?? '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-ink-muted">Automatic check</p>
+              <p className="mt-1 font-medium text-ink">On every start</p>
+            </div>
+          </div>
+
+          {phase === 'downloading' && status?.progress && (
+            <div className="space-y-1.5">
+              <div className="h-2 overflow-hidden rounded-full bg-border">
+                <div
+                  className="h-full rounded-full bg-brass transition-[width] duration-300"
+                  style={{ width: `${status.progress.percent}%` }}
+                />
+              </div>
+              <p className="text-xs text-ink-muted">
+                {status.progress.percent.toFixed(0)}% of {formatBytes(status.progress.total)}
+                {status.progress.bytesPerSecond > 0
+                  ? ` · ${formatBytes(status.progress.bytesPerSecond)}/s`
+                  : ''}
+              </p>
+            </div>
+          )}
+
+          {phase === 'error' && status?.message && (
+            <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+              {status.message}
+            </div>
+          )}
+
+          {phase === 'downloaded' && (
+            <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+              Version {status?.availableVersion} has been downloaded. Restart the application to
+              install it. Your bills, menu and settings are kept.
+            </div>
+          )}
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" disabled={busy || phase === 'downloaded'} onClick={() => void check()}>
+              <RefreshCw className={`h-4 w-4 ${checking ? 'animate-spin' : ''}`} />
+              {checking ? 'Checking…' : 'Check for updates'}
+            </Button>
+            <Button
+              disabled={phase !== 'downloaded' || installing}
+              onClick={() => void install()}
+            >
+              <DownloadCloud className="h-4 w-4" />
+              {installing || phase === 'installing' ? 'Restarting…' : 'Restart and install'}
+            </Button>
+          </div>
+
+          <p className="text-xs text-ink-muted">
+            Updates are downloaded in the background from GitHub Releases and are only installed
+            when you choose to restart. An internet connection is required to check; the app keeps
+            working offline.
+          </p>
+        </>
+      )}
+    </Card>
   );
 }
 

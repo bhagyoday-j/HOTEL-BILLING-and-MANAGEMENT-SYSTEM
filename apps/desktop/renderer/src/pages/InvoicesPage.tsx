@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Printer } from 'lucide-react';
-import { api } from '@/services/api';
+import { Ban, Pencil, Printer, Trash2 } from 'lucide-react';
+import { api, type UpdateBillInput } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,7 @@ import { EmptyState, ErrorState, Table, TBody, TD, TH, THead, TR } from '@/compo
 import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
 import { formatCurrency } from '@/utils/cn';
+import { invoicePrintData } from '@/utils/invoicePrintData';
 
 export function InvoicesPage() {
   const [search, setSearch] = useState('');
@@ -108,6 +109,8 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
   // cancellation and left the bill (and revenue) unchanged in the desktop app.
   const [cancelFormOpen, setCancelFormOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [editDraft, setEditDraft] = useState<UpdateBillInput | null>(null);
+  const [selectedMenuItemId, setSelectedMenuItemId] = useState('');
   // Print now opens an in-app preview first: Electron's native print dialog has no
   // preview, so the document is shown before the job is sent to the printer.
   const [previewFormat, setPreviewFormat] = useState<PrintFormat | null>(null);
@@ -116,6 +119,8 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
     setCancelFormOpen(false);
     setCancelReason('');
     setPreviewFormat(null);
+    setEditDraft(null);
+    setSelectedMenuItemId('');
   }, [id]);
 
   const billQuery = useQuery({
@@ -136,6 +141,15 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
     },
     enabled: id !== null,
   });
+  const editMenuQuery = useQuery({
+    queryKey: ['menu', 'bill-edit-items'],
+    queryFn: async () => {
+      const res = await api.menu.list({ available: 'true' });
+      if (!res.success) throw new Error(res.error.message);
+      return res.data;
+    },
+    enabled: editDraft !== null,
+  });
   const cancelMutation = useMutation({
     mutationFn: async (reason: string) => {
       const res = await api.bills.cancel(id!, reason);
@@ -153,47 +167,28 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
     },
     onError: (err: Error) => toast.error('Bill could not be cancelled', err.message),
   });
+  const updateMutation = useMutation({
+    mutationFn: async (data: UpdateBillInput) => {
+      const res = await api.bills.update(id!, data);
+      if (!res.success) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: (updatedBill) => {
+      toast.success('Bill updated', `${updatedBill.billNumber} · ${formatCurrency(updatedBill.grandTotal)}`);
+      setEditDraft(null);
+      void queryClient.invalidateQueries({ queryKey: ['bill', id] });
+      void queryClient.invalidateQueries({ queryKey: ['bills'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['customers'] });
+      void queryClient.invalidateQueries({ queryKey: ['customer-lookup'] });
+    },
+    onError: (err: Error) => toast.error('Bill could not be updated', err.message),
+  });
   const bill = billQuery.data;
 
   // The exact document shown in the preview and sent to the printer.
-  const invoiceData = bill && hotelQuery.data
-    ? {
-        invoiceNumber: bill.billNumber,
-        invoiceDate: bill.date,
-        status: bill.status,
-        hotel: {
-          name: hotelQuery.data.name,
-          address: hotelQuery.data.address,
-          city: hotelQuery.data.city,
-          state: hotelQuery.data.state,
-          phone: hotelQuery.data.phone,
-          email: hotelQuery.data.email,
-          gstin: hotelQuery.data.gstin,
-        },
-        guestName: bill.customerName,
-        guestMobile: bill.customerMobile,
-        roomNumber: null,
-        items: bill.items.map((item) => ({
-          description: item.name,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          discountAmount: '0',
-          lineTotal: item.lineTotal,
-        })),
-        subtotal: bill.subtotal,
-        discountAmount: bill.discountAmount,
-        taxableAmount: bill.taxableAmount,
-        cgstAmount: bill.cgstAmount,
-        sgstAmount: bill.sgstAmount,
-        igstAmount: bill.igstAmount,
-        totalTax: bill.totalTax,
-        roundingAmount: bill.roundingAmount,
-        grandTotal: bill.grandTotal,
-        paidAmount: bill.status === 'PAID' ? bill.grandTotal : '0',
-        dueAmount: bill.status === 'PAID' ? '0' : bill.grandTotal,
-        terms: bill.terms,
-      }
-    : null;
+  const invoiceData = bill && hotelQuery.data ? invoicePrintData(bill, hotelQuery.data) : null;
 
   return (
     <Dialog open={id !== null} onOpenChange={(open) => !open && onClose()}>
@@ -240,24 +235,225 @@ function BillDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
               </div>
               {bill.cancelReason && <p className="text-sm text-danger">Cancellation reason: {bill.cancelReason}</p>}
               <div className="flex flex-wrap justify-between gap-2 border-t border-border pt-4">
-                {bill.status !== 'CANCELLED' && hasPermission('BILL_CANCEL') ? (
-                  <Button
-                    variant="danger"
-                    disabled={cancelMutation.isPending || cancelFormOpen}
-                    onClick={() => setCancelFormOpen(true)}
-                  >
-                    <Ban className="h-4 w-4" /> Cancel bill
-                  </Button>
-                ) : <span />}
                 <div className="flex gap-2">
-                  <Button variant="outline" disabled={!invoiceData} onClick={() => setPreviewFormat('THERMAL_80')}>
-                    <Printer className="h-4 w-4" /> Preview receipt (80mm)
+                  {bill.status === 'PAID' && hasPermission('BILL_CREATE') && !editDraft && (
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setEditDraft({
+                          customerName: bill.customerName ?? '',
+                          customerMobile: bill.customerMobile ?? '',
+                          notes: bill.notes ?? '',
+                          discountAmount: Number(bill.discountAmount) === 0 ? '' : bill.discountAmount,
+                          items: bill.items.map((item) => ({ id: item.id, quantity: item.quantity })),
+                        })
+                      }
+                    >
+                      <Pencil className="h-4 w-4" /> Edit bill
+                    </Button>
+                  )}
+                  {bill.status !== 'CANCELLED' && hasPermission('BILL_CANCEL') ? (
+                    <Button
+                      variant="danger"
+                      disabled={cancelMutation.isPending || cancelFormOpen || Boolean(editDraft)}
+                      onClick={() => setCancelFormOpen(true)}
+                    >
+                      <Ban className="h-4 w-4" /> Cancel bill
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" disabled={!invoiceData} onClick={() => setPreviewFormat('THERMAL_58')}>
+                    <Printer className="h-4 w-4" /> Preview receipt (58mm)
                   </Button>
                   <Button variant="outline" disabled={!invoiceData} onClick={() => setPreviewFormat('A4')}>
                     <Printer className="h-4 w-4" /> Preview A4 invoice
                   </Button>
                 </div>
               </div>
+              {editDraft && (
+                <form
+                  className="space-y-4 rounded-lg border border-border bg-paper-elevated p-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    updateMutation.mutate(editDraft);
+                  }}
+                >
+                  <div>
+                    <h3 className="font-semibold text-forest-deep">Edit finalized bill</h3>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      Existing lines keep their billed prices and tax rates; added items use current menu prices and taxes. The paid total is recalculated, and before/after values are audited.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-bill-customer">Customer name</Label>
+                      <Input
+                        id="edit-bill-customer"
+                        maxLength={120}
+                        value={editDraft.customerName ?? ''}
+                        onChange={(event) =>
+                          setEditDraft({ ...editDraft, customerName: event.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-bill-mobile">Customer mobile</Label>
+                      <Input
+                        id="edit-bill-mobile"
+                        maxLength={20}
+                        value={editDraft.customerMobile ?? ''}
+                        onChange={(event) =>
+                          setEditDraft({ ...editDraft, customerMobile: event.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-bill-notes">Notes</Label>
+                      <Input
+                        id="edit-bill-notes"
+                        maxLength={500}
+                        value={editDraft.notes ?? ''}
+                        onChange={(event) =>
+                          setEditDraft({ ...editDraft, notes: event.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-bill-discount">Discount amount</Label>
+                      <Input
+                        id="edit-bill-discount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editDraft.discountAmount ?? ''}
+                        onChange={(event) =>
+                          setEditDraft({ ...editDraft, discountAmount: event.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Bill items</Label>
+                    <div className="flex gap-2">
+                      <Select
+                        aria-label="Add menu item to bill"
+                        value={selectedMenuItemId}
+                        disabled={editMenuQuery.isLoading || editMenuQuery.isError}
+                        onChange={(event) => setSelectedMenuItemId(event.target.value)}
+                      >
+                        <option value="">Select an available menu item</option>
+                        {(editMenuQuery.data?.items ?? []).map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} · {formatCurrency(item.price)}
+                          </option>
+                        ))}
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!selectedMenuItemId || editMenuQuery.isError}
+                        onClick={() => {
+                          const existing = editDraft.items.find(
+                            (line) => line.menuItemId === selectedMenuItemId,
+                          );
+                          setEditDraft({
+                            ...editDraft,
+                            items: existing
+                              ? editDraft.items.map((line) =>
+                                  line.menuItemId === selectedMenuItemId
+                                    ? { ...line, quantity: String(Number(line.quantity) + 1) }
+                                    : line,
+                                )
+                              : [
+                                  ...editDraft.items,
+                                  { menuItemId: selectedMenuItemId, quantity: '1' },
+                                ],
+                          });
+                          setSelectedMenuItemId('');
+                        }}
+                      >
+                        Add item
+                      </Button>
+                    </div>
+                    {editMenuQuery.isError && (
+                      <ErrorState message={(editMenuQuery.error as Error).message} />
+                    )}
+                    {editDraft.items.map((line) => {
+                      const oldItem = line.id
+                        ? bill.items.find((candidate) => candidate.id === line.id)
+                        : undefined;
+                      const newItem = line.menuItemId
+                        ? editMenuQuery.data?.items.find((candidate) => candidate.id === line.menuItemId)
+                        : undefined;
+                      const itemName = oldItem?.name ?? newItem?.name;
+                      if (!itemName) return null;
+                      return (
+                        <div key={line.id ?? line.menuItemId} className="grid grid-cols-[minmax(0,1fr)_6rem_auto] items-center gap-2">
+                          <span className="truncate text-sm">{itemName}</span>
+                          <Input
+                            aria-label={`${itemName} quantity`}
+                            type="number"
+                            min="1"
+                            max="999"
+                            step="1"
+                            required
+                            value={line.quantity}
+                            onChange={(event) =>
+                              setEditDraft({
+                                ...editDraft,
+                                items: editDraft.items.map((current) =>
+                                  current.id === line.id &&
+                                  current.menuItemId === line.menuItemId
+                                    ? { ...current, quantity: event.target.value }
+                                    : current,
+                                ),
+                              })
+                            }
+                          />
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            aria-label={`Remove ${itemName} from bill`}
+                            onClick={() =>
+                              setEditDraft({
+                                ...editDraft,
+                                items: editDraft.items.filter(
+                                  (current) =>
+                                    current.id !== line.id ||
+                                    current.menuItemId !== line.menuItemId,
+                                ),
+                              })
+                            }
+                          >
+                            <Trash2 className="h-4 w-4 text-danger" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                    {editDraft.items.length === 0 && (
+                      <p className="text-xs text-danger">A bill must keep at least one item.</p>
+                    )}
+                  </div>
+                  <p className="text-xs text-ink-muted">
+                    Bills with recorded payment transactions cannot be edited; payment history is never rewritten.
+                  </p>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={updateMutation.isPending}
+                      onClick={() => setEditDraft(null)}
+                    >
+                      Keep bill unchanged
+                    </Button>
+                    <Button type="submit" disabled={updateMutation.isPending || editDraft.items.length === 0}>
+                      {updateMutation.isPending ? 'Saving…' : 'Save bill changes'}
+                    </Button>
+                  </div>
+                </form>
+              )}
               {cancelFormOpen && (
                 <form
                   className="space-y-3 rounded-lg border border-danger/30 bg-danger/5 p-4"

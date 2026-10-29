@@ -201,7 +201,7 @@ Permissions are enforced server-side on every protected route; UI gating is a co
 | `npm run build:renderer` | Build the renderer (`vite build`) |
 | `npm run build:electron` | Compile the Electron TypeScript |
 | `npm run package` | Build + unpacked app in `release/win-unpacked` |
-| `npm run installer` | Build + Windows installer `release/HotelBillingSetup.exe` |
+| `npm run installer` | Build + Windows installer `release/HotelBillingSetup.exe` (never publishes) |
 | `npm test` | Vitest unit tests (billing engine + print templates) |
 | `npm run typecheck` | Typecheck renderer, server and Electron separately |
 | `npm run lint` | ESLint |
@@ -281,9 +281,15 @@ Generate the Windows installer:
 npm run installer
 ```
 
-`npm run installer` runs `npm run build` and then electron-builder, producing
+`npm run installer` runs `npm run build` and then electron-builder (`--publish never`), producing
 `release/HotelBillingSetup.exe` (Windows x64 NSIS). For a faster unpacked build used during testing,
 run `npm run package` → `release/win-unpacked`.
+
+Installed apps check public GitHub Releases for updates through electron-updater. Updates download
+in the background and are installed only from **Settings → Application updates → Restart and
+install**; data under `%APPDATA%\Hotel Billing` is never replaced. Releases are published only by
+`.github/workflows/release.yml` from a version tag (or a manual workflow run of an existing tag)
+that matches `package.json`. See [docs/updates.md](docs/updates.md).
 
 The installer preserves the AppData database, backups and logs across upgrades, and does not delete
 user data on uninstall. The build is **unsigned**: `electron-builder.yml` sets
@@ -299,6 +305,7 @@ set it to `true` once a certificate is available.
 - [Backup](docs/backup.md)
 - [Security](docs/security.md)
 - [Deployment](docs/deployment.md)
+- [In-app updates](docs/updates.md)
 - [Agent/project conventions](AGENTS.md)
 
 ## Current scope & known limitations
@@ -311,6 +318,10 @@ set it to `true` once a certificate is available.
   physical output on receipt paper must be confirmed once on the target Windows machine.
 - **Dependency audit** findings are known; all fixes are semver-major and were deliberately
   deferred.
+- **Updates** work with the unsigned installer, but without code signing the updater cannot verify
+  the installer publisher and Windows may show SmartScreen warnings. Schema-changing releases also
+  inherit the non-transactional migration runner; take a backup and smoke-test before publishing.
+  Details: [docs/updates.md](docs/updates.md).
 - Dates in analytics include empty week/day/month buckets; revenue only (no profit).
 
 See [AGENTS.md](AGENTS.md) for the full remaining-work status.

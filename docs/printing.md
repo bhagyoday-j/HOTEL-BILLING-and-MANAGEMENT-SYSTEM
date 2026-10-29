@@ -5,6 +5,9 @@ Implemented in the Electron main process (`apps/desktop/electron/printing`).
 ## Capabilities
 
 - Formats: `A4`, `THERMAL_80` (80mm) and `THERMAL_58` (58mm).
+- 58mm thermal receipt is the default preview/print format; users can switch to 80mm or A4.
+- Newly created bills from **Tables** and **Menu & Billing** can be previewed and printed without
+  leaving that screen.
 - Printer discovery via `webContents.getPrintersAsync()`.
 - Invoice/receipt printing through a hidden `BrowserWindow` (`webContents.print()`), with optional
   silent printing and 1–5 copies.

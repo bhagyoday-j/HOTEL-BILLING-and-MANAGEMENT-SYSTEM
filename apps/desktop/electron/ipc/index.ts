@@ -8,6 +8,7 @@ import { printerService } from '../printing/printerService';
 import { backupService } from '../backup/backupService';
 import { startBackupScheduler } from '../backup/backupScheduler';
 import { hasServerCrashed, isServerRunning, startServer, stopServer } from '../server/serverProcess';
+import { checkForUpdates, getUpdateStatus, installUpdate } from '../updater/updateService';
 
 // Handlers receive untyped arg lists; each handler validates its own payload.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -73,6 +74,22 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   // ─── App ──────────────────────────────────────────────────────
   handle('app:getVersion', () => APP_VERSION);
   handle('app:getPaths', () => getAppPaths());
+
+  // ─── Application updates ─────────────────────────────────────
+  handle('updates:status', () => ok(getUpdateStatus()));
+  handle('updates:check', async () => ok(await checkForUpdates()));
+  handle('updates:install', async () => {
+    try {
+      installUpdate();
+      return ok({ installing: true });
+    } catch (err) {
+      logger.error({ err }, 'updates:install failed');
+      return fail(
+        'UPDATE_INSTALL_FAILED',
+        err instanceof Error ? err.message : 'The update could not be installed',
+      );
+    }
+  });
 
   // ─── Auth ─────────────────────────────────────────────────────
   handle('auth:login', async (_event, payload: { username: string; password: string }) => {
@@ -184,6 +201,7 @@ export function registerIpcHandlers(_ipc: IpcMain): void {
   passthrough('bills:list', (query: unknown) => `/api/bills${asQueryString(query)}`);
   passthrough('bills:get', (id: unknown) => `/api/bills/${id}`);
   passthrough('bills:create', () => '/api/bills', 'POST');
+  passthrough('bills:update', (id: unknown) => `/api/bills/${id}`, 'PUT');
   handle('bills:cancel', async (event, id: unknown, payload: { reason: string }) =>
     callApi(event, `/api/bills/${id}/cancel`, body(payload ?? {})),
   );

@@ -139,3 +139,38 @@ export function stopServer(): void {
     serverProcess = null;
   }
 }
+
+/**
+ * Stop the local API and wait (bounded) for the child process to exit. Used
+ * before an update install so the installer never runs while the server still
+ * holds the database or the packaged files open.
+ */
+export async function stopServerAndWait(timeoutMs = 5_000): Promise<void> {
+  const child = serverProcess;
+  if (!child || child.exitCode !== null || child.killed) {
+    serverProcess = null;
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (reason: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearInterval(poll);
+      logger.info({ reason }, 'Local API stopped for update');
+      resolve();
+    };
+
+    const timer = setTimeout(() => finish('timeout'), timeoutMs);
+    const poll = setInterval(() => {
+      if (child.exitCode !== null) finish('exited');
+    }, 100);
+
+    child.once('exit', () => finish('exited'));
+    logger.info({ pid: child.pid }, 'Stopping local API before installing update');
+    child.kill();
+    serverProcess = null;
+  });
+}

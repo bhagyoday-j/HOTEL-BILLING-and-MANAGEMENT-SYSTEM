@@ -26,7 +26,7 @@ const FORMAT_LABELS: Record<PrintFormat, string> = {
 export function PrintPreviewDialog({
   title,
   data,
-  initialFormat = 'A4',
+  initialFormat = 'THERMAL_58',
   onClose,
 }: {
   title: string;

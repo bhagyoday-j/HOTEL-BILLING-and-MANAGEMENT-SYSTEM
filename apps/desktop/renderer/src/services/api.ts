@@ -1,4 +1,4 @@
-import type { ApiResponse, LicenseStatus, SessionUser } from '@hotel-billing/shared';
+import type { ApiResponse, LicenseStatus, SessionUser, UpdateStatus } from '@hotel-billing/shared';
 import { useAuthStore } from '@/stores/authStore';
 
 function resolveApiBase(): string {
@@ -221,6 +221,8 @@ export interface BillDetail {
   totalTax: string;
   roundingAmount: string;
   grandTotal: string;
+  paidAmount: string;
+  dueAmount: string;
   notes?: string | null;
   terms?: string | null;
   cancelledAt?: string | null;
@@ -233,6 +235,7 @@ export interface BillDetail {
     quantity: string;
     unitPrice: string;
     taxRate: string;
+    discountAmount: string;
     lineTotal: string;
   }>;
 }
@@ -277,6 +280,15 @@ export interface CreateBillInput {
   /** Absolute discount on the bill, exclusive with discountPercent. */
   discountAmount?: string;
   /** Percentage discount on the bill, exclusive with discountAmount. */
+  discountPercent?: string;
+}
+
+export interface UpdateBillInput {
+  customerName?: string;
+  customerMobile?: string;
+  notes?: string;
+  items: Array<{ id?: string; menuItemId?: string; quantity: string }>;
+  discountAmount?: string;
   discountPercent?: string;
 }
 
@@ -435,6 +447,15 @@ export const api = {
       ),
   },
 
+  updates: {
+    /** Current update state reported by the desktop main process. */
+    status: () =>
+      viaBridge<UpdateStatus>(() => bridge()!.updates.getStatus(), undefined),
+    check: () => viaBridge<UpdateStatus>(() => bridge()!.updates.check(), undefined),
+    install: () =>
+      viaBridge<{ installing: boolean }>(() => bridge()!.updates.install(), undefined),
+  },
+
   dashboard: {
     summary: () =>
       viaBridge<DashboardSummary>(
@@ -591,6 +612,15 @@ export const api = {
         () => bridge()!.bills.create(data),
         () =>
           http<BillDetail>('/api/bills', { method: 'POST', body: JSON.stringify(data) }),
+      ),
+    update: (id: string, data: UpdateBillInput) =>
+      viaBridge<BillDetail>(
+        () => bridge()!.bills.update(id, data),
+        () =>
+          http<BillDetail>(`/api/bills/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+          }),
       ),
     cancel: (id: string, reason: string) =>
       viaBridge<{ cancelled: boolean }>(

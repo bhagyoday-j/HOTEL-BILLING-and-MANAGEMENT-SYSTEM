@@ -1,13 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Minus, Plus, Pencil, Search, Trash2 } from 'lucide-react';
+import { Minus, Plus, Pencil, Printer, Search, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { api, type MenuCategory, type MenuItem } from '@/services/api';
+import { api, type BillDetail, type MenuCategory, type MenuItem } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { PrintPreviewDialog, type PrintFormat } from '@/components/PrintPreviewDialog';
 import { Card, CardTitle } from '@/components/ui/card';
 import { EmptyState, ErrorState } from '@/components/ui/table';
 import { confirmDialog } from '@/stores/confirmStore';
@@ -15,6 +16,7 @@ import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
 import { cn, formatCurrency } from '@/utils/cn';
 import { buildDiscount, validateDiscount, type DiscountMode } from '@/utils/discount';
+import { invoicePrintData } from '@/utils/invoicePrintData';
 
 interface CartLine {
   item: MenuItem;
@@ -32,7 +34,8 @@ export function RestaurantPage() {
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
-  const [createdBillNumber, setCreatedBillNumber] = useState<string | null>(null);
+  const [createdBill, setCreatedBill] = useState<BillDetail | null>(null);
+  const [previewFormat, setPreviewFormat] = useState<PrintFormat | null>(null);
   const requestId = useRef<string | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -115,7 +118,7 @@ export function RestaurantPage() {
       setCustomerMobile('');
       setDiscountMode('none');
       setDiscountValue('');
-      setCreatedBillNumber(bill.billNumber);
+      setCreatedBill(bill);
       toast.success('Bill created', bill.billNumber);
       void queryClient.invalidateQueries({ queryKey: ['bills'] });
       void queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -145,6 +148,17 @@ export function RestaurantPage() {
     enabled: lookupEnabled,
   });
   const knownCustomer = customerLookupQuery.data ?? null;
+  const hotelQuery = useQuery({
+    queryKey: ['hotel'],
+    queryFn: async () => {
+      const res = await api.hotel.get();
+      if (!res.success) throw new Error(res.error.message);
+      return res.data;
+    },
+    enabled: Boolean(createdBill),
+  });
+  const printData =
+    createdBill && hotelQuery.data ? invoicePrintData(createdBill, hotelQuery.data) : null;
 
   const items = menuQuery.data?.items ?? [];
   const categories = menuQuery.data?.categories ?? [];
@@ -160,7 +174,7 @@ export function RestaurantPage() {
           )
         : [...current, { item, quantity: 1 }];
     });
-    setCreatedBillNumber(null);
+    setCreatedBill(null);
   };
 
   const changeQuantity = (itemId: string, quantity: number) => {
@@ -192,11 +206,27 @@ export function RestaurantPage() {
       </div>
 
       {menuQuery.isError && <ErrorState message={(menuQuery.error as Error).message} />}
-      {createdBillNumber && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-forest/20 bg-forest/5 px-4 py-3 text-sm">
-          <span>Bill <strong>{createdBillNumber}</strong> was created and marked paid.</span>
-          <Button size="sm" variant="outline" onClick={() => navigate('/invoices')}>View bills</Button>
-        </div>
+      {createdBill && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-forest/20 bg-forest/5 px-4 py-3 text-sm">
+            <span>Bill <strong>{createdBill.billNumber}</strong> was created and marked paid.</span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => setPreviewFormat('THERMAL_58')}
+                disabled={!printData}
+              >
+                <Printer className="h-4 w-4" /> Preview & print
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => navigate('/invoices')}>View bills</Button>
+            </div>
+          </div>
+          {hotelQuery.isError && (
+            <p className="text-sm text-danger">
+              Bill was created, but receipt details could not be loaded: {(hotelQuery.error as Error).message}
+            </p>
+          )}
+        </>
       )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -417,6 +447,14 @@ export function RestaurantPage() {
           </DialogContent>
         )}
       </Dialog>
+      {printData && previewFormat && createdBill && (
+        <PrintPreviewDialog
+          title={`Print bill ${createdBill.billNumber}`}
+          data={printData}
+          initialFormat={previewFormat}
+          onClose={() => setPreviewFormat(null)}
+        />
+      )}
     </div>
   );
 }

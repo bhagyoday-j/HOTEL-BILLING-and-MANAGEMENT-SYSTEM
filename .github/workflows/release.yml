@@ -1,0 +1,94 @@
+name: Release (Windows)
+
+# Builds and publishes only for an explicit version tag (or a manual dispatch of
+# an existing tag). Normal pushes never publish a release.
+on:
+  push:
+    tags:
+      # Glob, not a regex. The version check below enforces the exact vX.Y.Z
+      # match with package.json, so loose matching here is safe.
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build and publish (for example v1.0.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-windows-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish Windows installer
+    runs-on: windows-latest
+    # Only the release step needs to write: it creates the draft release and
+    # uploads the installer, blockmap and latest.yml with the workflow token.
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="${RELEASE_TAG#v}"
+          if [[ "$tag" != "$version" ]]; then
+            echo "::error::Tag ${RELEASE_TAG} does not match package.json version ${version}. Bump the version and create a new tag."
+            exit 1
+          fi
+          echo "Releasing version ${version}"
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # The renderer resolves @hotel-billing/shared from its built dist/ output.
+      - name: Build shared package
+        run: npm run build:shared
+
+      - name: Test
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish draft GitHub release
+        env:
+          # Least privilege: the job-level permission above is all this needs.
+          # No PAT or signing secret is required for a public release.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win nsis --x64 --publish always
+
+      - name: Reminder
+        shell: bash
+        run: |
+          echo "A DRAFT release was created. Install and smoke-test it on a Windows test machine, then publish the release on GitHub. Clients only see published releases."
+          echo "The installer is unsigned; expect a SmartScreen warning on download/first run."

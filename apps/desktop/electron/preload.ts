@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { IpcRendererEvent } from 'electron';
+import type { UpdateStatus } from '@hotel-billing/shared';
 
 /**
  * The only bridge between renderer and main. No Node APIs, no fs, no child
@@ -11,6 +13,19 @@ const api = {
   app: {
     getVersion: () => ipcRenderer.invoke('app:getVersion'),
     getPaths: () => ipcRenderer.invoke('app:getPaths'),
+  },
+  updates: {
+    getStatus: () => ipcRenderer.invoke('updates:status'),
+    check: () => ipcRenderer.invoke('updates:check'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    /** Subscribe to main-process status changes; returns an unsubscribe function. */
+    onStatus: (callback: (status: UpdateStatus) => void) => {
+      const listener = (_event: IpcRendererEvent, status: UpdateStatus): void => callback(status);
+      ipcRenderer.on('updates:status', listener);
+      return () => {
+        ipcRenderer.removeListener('updates:status', listener);
+      };
+    },
   },
   auth: {
     login: (username: string, password: string) =>
@@ -59,6 +74,7 @@ const api = {
     list: (query?: Record<string, unknown>) => ipcRenderer.invoke('bills:list', query),
     get: (id: string) => ipcRenderer.invoke('bills:get', id),
     create: (data: unknown) => ipcRenderer.invoke('bills:create', data),
+    update: (id: string, data: unknown) => ipcRenderer.invoke('bills:update', id, data),
     cancel: (id: string, reason: string) => ipcRenderer.invoke('bills:cancel', id, { reason }),
   },
   customers: {

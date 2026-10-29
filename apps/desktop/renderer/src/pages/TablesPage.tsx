@@ -7,6 +7,7 @@ import {
   Minus,
   Pencil,
   Plus,
+  Printer,
   ReceiptText,
   Search,
   Trash2,
@@ -27,6 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { PrintPreviewDialog, type PrintFormat } from '@/components/PrintPreviewDialog';
 import { Card } from '@/components/ui/card';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState, ErrorState } from '@/components/ui/table';
@@ -35,6 +37,7 @@ import { toast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
 import { cn, formatCurrency } from '@/utils/cn';
 import { buildDiscount, validateDiscount, type DiscountMode } from '@/utils/discount';
+import { invoicePrintData } from '@/utils/invoicePrintData';
 
 export function TablesPage() {
   const queryClient = useQueryClient();
@@ -51,6 +54,7 @@ export function TablesPage() {
   const [editingTable, setEditingTable] = useState<DiningTable | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [createdBill, setCreatedBill] = useState<BillDetail | null>(null);
+  const [previewFormat, setPreviewFormat] = useState<PrintFormat | null>(null);
 
   const tablesQuery = useQuery({
     queryKey: ['tables', search, status],
@@ -66,6 +70,17 @@ export function TablesPage() {
 
   const tables = tablesQuery.data?.items ?? [];
   const selectedTable = tables.find((table) => table.id === selectedId) ?? null;
+  const hotelQuery = useQuery({
+    queryKey: ['hotel'],
+    queryFn: async () => {
+      const res = await api.hotel.get();
+      if (!res.success) throw new Error(res.error.message);
+      return res.data;
+    },
+    enabled: Boolean(createdBill),
+  });
+  const printData =
+    createdBill && hotelQuery.data ? invoicePrintData(createdBill, hotelQuery.data) : null;
 
   const saveTableMutation = useMutation({
     mutationFn: async (values: TableFormValues) => {
@@ -246,20 +261,34 @@ export function TablesPage() {
       {tablesQuery.isError && <ErrorState message={(tablesQuery.error as Error).message} />}
 
       {createdBill && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-forest/20 bg-forest/5 px-4 py-3 text-sm">
-          <span>
-            Bill <strong>{createdBill.billNumber}</strong> generated for{' '}
-            {formatCurrency(createdBill.grandTotal)} and marked paid. The table is free.
-          </span>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => setCreatedBill(null)}>
-              Dismiss
-            </Button>
-            <Button size="sm" onClick={() => navigate('/invoices')}>
-              View bills
-            </Button>
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-forest/20 bg-forest/5 px-4 py-3 text-sm">
+            <span>
+              Bill <strong>{createdBill.billNumber}</strong> generated for{' '}
+              {formatCurrency(createdBill.grandTotal)} and marked paid. The table is free.
+            </span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => setPreviewFormat('THERMAL_58')}
+                disabled={!printData}
+              >
+                <Printer className="h-4 w-4" /> Preview & print
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setCreatedBill(null)}>
+                Dismiss
+              </Button>
+              <Button size="sm" onClick={() => navigate('/invoices')}>
+                View bills
+              </Button>
+            </div>
           </div>
-        </div>
+          {hotelQuery.isError && (
+            <p className="text-sm text-danger">
+              Bill was generated, but receipt details could not be loaded: {(hotelQuery.error as Error).message}
+            </p>
+          )}
+        </>
       )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_26rem]">
@@ -367,6 +396,7 @@ export function TablesPage() {
               }
               onCheckout={() => {
                 setCreatedBill(null);
+                setPreviewFormat(null);
                 setCheckoutOpen(true);
               }}
               onVoid={async () => {
@@ -431,6 +461,14 @@ export function TablesPage() {
           </DialogContent>
         )}
       </Dialog>
+      {printData && previewFormat && createdBill && (
+        <PrintPreviewDialog
+          title={`Print bill ${createdBill.billNumber}`}
+          data={printData}
+          initialFormat={previewFormat}
+          onClose={() => setPreviewFormat(null)}
+        />
+      )}
     </div>
   );
 }
