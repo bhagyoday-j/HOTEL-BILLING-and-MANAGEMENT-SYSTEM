@@ -3,7 +3,7 @@
 Offline-capable Windows desktop application for **menu management, customer billing, receipt
 printing, and owner analytics**.
 
-**Version:** 1.0.0 · **Target:** Windows 10/11 x64 (Electron) · **Local-first:** the desktop app
+**Version:** 1.0.1 · **Target:** Windows 10/11 x64 (Electron) · **Local-first:** the desktop app
 runs a local Express API against a SQLite database. Online sync is out of scope.
 
 ## Overview

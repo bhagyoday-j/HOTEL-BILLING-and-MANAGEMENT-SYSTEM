@@ -1,6 +1,6 @@
 {
   "name": "hotel-billing",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Offline-capable Windows desktop app for hotel menu management, customer billing, receipt printing and owner analytics.",
   "author": "Hotel Billing Systems",
   "main": "apps/desktop/electron/dist/main.js",

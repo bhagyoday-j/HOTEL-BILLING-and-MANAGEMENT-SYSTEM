@@ -61,8 +61,8 @@ Diagnostics are written to `%APPDATA%\Hotel Billing\logs\electron.log` with
 
 The updater compares `app.getVersion()` (root `package.json`) with `latest.yml`.
 
-1. Bump the version in **both** `package.json` and `packages/shared/src/constants.ts`
-   (`APP_VERSION`, used for display).
+1. Bump the version in `package.json`, its root entry in `package-lock.json`,
+   `packages/shared/src/constants.ts` (`APP_VERSION`, used for display), and the README.
 2. Commit and create a tag `vX.Y.Z` matching that version exactly.
 3. Push the tag. `.github/workflows/release.yml` runs on `windows-latest`, installs,
    verifies tag == `package.json`, runs tests/typecheck/lint/build, and publishes with

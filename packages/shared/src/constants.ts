@@ -1,5 +1,5 @@
 export const APP_NAME = 'Hotel Billing';
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.0.1';
 export const APP_ID = 'com.hotelbilling.app';
 
 export const LOCAL_API_PORT = 3847;
